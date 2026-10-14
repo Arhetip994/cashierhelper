@@ -49,6 +49,9 @@ object QobuzAudioProvider {
     @Volatile
     private var tokens: List<QobuzToken> = emptyList()
 
+    @Volatile
+    var paxApiKey: String = ""
+
     val activeInstanceUrls: List<String>
         get() = instances.map { it.baseUrl }
 
@@ -458,6 +461,21 @@ object QobuzAudioProvider {
     }
 
     private fun orderedBackends(): List<Backend> {
+        val paxBackends =
+            if (paxApiKey.isNotBlank()) {
+                listOf(
+                    Backend(
+                        id = "paxsenix",
+                        label = "Paxsenix API",
+                        isToken = false,
+                        search = { q -> searchPaxsenix(q) },
+                        download = { id, fmt -> fetchDownloadPaxsenix(id, fmt) },
+                    ),
+                )
+            } else {
+                emptyList()
+            }
+
         val tokenBackends =
             tokens.map { token ->
                 Backend(
@@ -480,7 +498,102 @@ object QobuzAudioProvider {
                     download = { id, fmt -> fetchDownload(instance.baseUrl, id, fmt) },
                 )
             }
-        return tokenBackends + proxyBackends
+        return paxBackends + tokenBackends + proxyBackends
+    }
+
+    private fun searchPaxsenix(searchQuery: String): JSONArray? {
+        val key = paxApiKey.trim()
+        if (key.isBlank()) return null
+        val url =
+            "https://api.paxsenix.org/qobuz/search"
+                .toHttpUrl()
+                .newBuilder()
+                .addQueryParameter("q", searchQuery)
+                .build()
+        val authHeader = if (key.startsWith("Bearer ", ignoreCase = true)) key else "Bearer $key"
+        val request =
+            Request
+                .Builder()
+                .url(url)
+                .header("Authorization", authHeader)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .get()
+                .build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val body = response.body?.string().orEmpty()
+                if (body.isBlank()) return@use null
+                val root = JSONObject(body)
+                root.findTrackItems()
+            }
+        }.getOrNull()
+    }
+
+    private fun fetchDownloadPaxsenix(
+        trackId: String,
+        formatId: Int,
+    ): DownloadResult? {
+        val key = paxApiKey.trim()
+        if (key.isBlank()) return null
+        val rawId = trackId.removePrefix("qobuz:")
+        val qualityList =
+            when (formatId) {
+                27 -> listOf("Studio Quality", "Hi-Res", "CD", "320kbps")
+                7 -> listOf("Hi-Res", "CD", "320kbps")
+                6 -> listOf("CD", "320kbps")
+                else -> listOf("320kbps", "CD")
+            }
+        val authHeader = if (key.startsWith("Bearer ", ignoreCase = true)) key else "Bearer $key"
+        val qobuzUrl = "https://open.qobuz.com/track/$rawId"
+
+        for (quality in qualityList) {
+            val url =
+                "https://api.paxsenix.org/dl/qobuz"
+                    .toHttpUrl()
+                    .newBuilder()
+                    .addQueryParameter("url", qobuzUrl)
+                    .addQueryParameter("quality", quality)
+                    .build()
+            val request =
+                Request
+                    .Builder()
+                    .url(url)
+                    .header("Authorization", authHeader)
+                    .header("User-Agent", USER_AGENT)
+                    .header("Accept", "application/json")
+                    .get()
+                    .build()
+            val res =
+                runCatching {
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) return@use null
+                        val body = response.body?.string().orEmpty()
+                        if (body.isBlank()) return@use null
+                        val root = JSONObject(body)
+                        if (!root.optBoolean("ok", true)) return@use null
+                        val streamUrl =
+                            root.stringOrNull("directUrl")
+                                ?: root.stringOrNull("url")
+                                ?: root.optJSONObject("data")?.stringOrNull("directUrl")
+                                ?: root.optJSONObject("data")?.stringOrNull("url")
+                                ?: root.findStreamUrl()
+                                ?: return@use null
+                        val isPreview = root.looksLikePreview()
+                        val mime =
+                            when {
+                                streamUrl.contains(".flac", ignoreCase = true) -> AUDIO_FLAC_MIME_TYPE
+                                streamUrl.contains(".mp3", ignoreCase = true) -> "audio/mpeg"
+                                else -> AUDIO_FLAC_MIME_TYPE
+                            }
+                        val codecs = if (mime == AUDIO_FLAC_MIME_TYPE) "flac" else "mp4a.40.2"
+                        DownloadResult(streamUrl, mime, codecs, isPreview)
+                    }
+                }.getOrNull()
+            if (res != null) return res
+        }
+        return null
     }
 
     private fun qualityLabel(formatId: Int): String =
@@ -833,7 +946,7 @@ object QobuzAudioProvider {
     }
 
     private fun JSONObject.findStreamUrl(): String? {
-        for (key in listOf("url", "downloadUrl", "download_url", "stream_url", "streamUrl", "link")) {
+        for (key in listOf("directUrl", "direct_url", "url", "downloadUrl", "download_url", "stream_url", "streamUrl", "link")) {
             stringOrNull(key)?.takeIf { it.startsWith("http") }?.let { return it }
         }
         optJSONObject("data")?.findStreamUrl()?.let { return it }

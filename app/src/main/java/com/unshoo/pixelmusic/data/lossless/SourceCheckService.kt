@@ -214,13 +214,18 @@ object SourceCheckService {
     }
 
     private suspend fun checkQobuz(context: Context): SourceCheckResult {
+        if (QobuzAudioProvider.paxApiKey.isNotBlank()) {
+            return SourceCheckResult(
+                status = SourceCheckStatus.READY,
+                summary = "Paxsenix API key active. Direct Qobuz Hi-Res / Studio Quality stream resolution is ready.",
+            )
+        }
         PoolAccountManager.refresh(context, force = false)
         val accounts = PoolAccountManager.qobuzAccounts()
         if (accounts.isEmpty()) {
             return SourceCheckResult(
                 status = SourceCheckStatus.NOT_CONFIGURED,
-                summary = "No Qobuz accounts in the source pool. Sign in with your own Qobuz account " +
-                    "(token + app_id + app_secret) below, or refresh the pool to pull fresh accounts.",
+                summary = "No Qobuz accounts in the source pool and no Paxsenix API key configured. Enter a Paxsenix key below, or sign in with your own Qobuz account.",
             )
         }
         val premium = accounts.count { it.premium }

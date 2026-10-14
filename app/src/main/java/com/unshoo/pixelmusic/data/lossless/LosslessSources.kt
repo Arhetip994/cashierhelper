@@ -26,6 +26,7 @@ import com.unshoo.pixelmusic.data.lossless.constants.PoolApiKeyKey
 import com.unshoo.pixelmusic.data.lossless.constants.PoolBaseUrlKey
 import com.unshoo.pixelmusic.data.lossless.constants.QobuzEnabledKey
 import com.unshoo.pixelmusic.data.lossless.constants.QobuzLastProbeTrackKey
+import com.unshoo.pixelmusic.data.lossless.constants.QobuzPaxApiKeyKey
 import com.unshoo.pixelmusic.data.lossless.constants.TidalEnabledKey
 import com.unshoo.pixelmusic.data.lossless.constants.TidalLastProbeTrackKey
 import com.unshoo.pixelmusic.data.lossless.constants.getAsync
@@ -118,6 +119,15 @@ object LosslessSources {
                 .map { (it[DeezerArlKey] ?: "") to (it[DeezerAccountPremiumKey] ?: false) }
                 .distinctUntilChanged()
                 .collect { (arl, premium) -> DeezerAudioProvider.setManualArl(arl, premium) }
+        }
+
+        scope.launch(Dispatchers.IO) {
+            dataStore.data
+                .map { it[QobuzPaxApiKeyKey]?.trim().orEmpty() }
+                .distinctUntilChanged()
+                .collect { key ->
+                    QobuzAudioProvider.paxApiKey = key.ifBlank { "sk-paxsenix--zH1NhwDRkyDr-BaLzcVyb5el1Jacyls4GatEY_x-NULGTTe" }
+                }
         }
 
         runCatching { SourceRefreshWorker.schedule(app) }

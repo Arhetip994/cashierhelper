@@ -25,6 +25,8 @@
     <string name="lossless_qobuz_login_success">Аккаунт Qobuz добавлен</string>
     <string name="lossless_qobuz_app_secret_title">Введите секрет приложения Qobuz</string>
     <string name="lossless_qobuz_app_secret_hint">app_secret (из вашего источника токенов)</string>
+    <string name="lossless_qobuz_paxsenix_key_title">API-ключ Paxsenix</string>
+    <string name="lossless_qobuz_paxsenix_key_desc">Прямой Hi-Res / Studio Quality стриминг из Qobuz (FLAC до 24-бит/192 кГц) через Paxsenix.</string>
 
     <!-- Apple Music -->
     <string name="lossless_applemusic_login">Войти в Apple Music</string>

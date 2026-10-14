@@ -121,6 +121,9 @@ val QobuzTokensKey = stringPreferencesKey("qobuzTokens")
 
 val QobuzVerifiedTokensKey = stringPreferencesKey("qobuzVerifiedTokens")
 
+/** Paxsenix API key for direct Qobuz Hi-Res / Studio Quality stream resolution. */
+val QobuzPaxApiKeyKey = stringPreferencesKey("qobuzPaxApiKey")
+
 enum class QobuzAudioQuality {
     FLAC,
     HI_RES,

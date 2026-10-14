@@ -15,6 +15,7 @@ This document provides a comprehensive, in-depth architectural and technical bre
 8. [Collision-Free Player Header Layout](#8-collision-free-player-header-layout)
 9. [Decoupled Multi-Source Lyrics Resolution](#9-decoupled-multi-source-lyrics-resolution)
 10. [Comprehensive Performance & Architectural Optimizations](#10-comprehensive-performance--architectural-optimizations)
+11. [Studio Hi-Res Qobuz (Paxsenix API) & Tidal Multi-Source Streaming Engine](#11-studio-hi-res-qobuz-paxsenix-api--tidal-multi-source-streaming-engine)
 
 ---
 
@@ -344,3 +345,50 @@ Extensive performance optimizations have been executed across compilation pipeli
 5. **Memory Pooling & Image Cache Optimization (`AlbumArtCacheManager`)**:
    * Implemented hardware bitmap decoding with downsampling matched to screen density.
    * Integrated high-speed LRU memory cache with automatic trim on Android OS low-memory warnings (`onTrimMemory`).
+
+---
+
+## 11. Studio Hi-Res Qobuz (Paxsenix API) & Tidal Multi-Source Streaming Engine
+
+### 🎯 Overview
+Lossless audio streaming traditionally requires paid subscriptions, specialized tokens, or private reverse-engineered servers. PixelMusic now integrates a dual-layer Hi-Res resolution engine:
+1. **Paxsenix API Integration for Qobuz**: Delivers studio-grade Hi-Res FLAC (up to 24-bit / 192kHz) through direct Akamai CDN delivery links without requiring a paid user account.
+2. **Public Tidal & Monochrome Distributed Fallbacks**: Out-of-the-box streaming resolution through redundant public Hi-Fi and Monochrome nodes.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                   LOSSLESS RESOLUTION PIPELINE                         │
+├────────────────────────────────────────────────────────────────────────┤
+│ 1. User Requests Track: "Manalan Mailla"                               │
+│ 2. Priority #1: Paxsenix Qobuz Engine                                  │
+│    ├── Query: GET api.paxsenix.org/qobuz/search?q=...                 │
+│    ├── Match ID: `trackId` from Qobuz Catalog                         │
+│    └── Stream: GET api.paxsenix.org/dl/qobuz?url=...&quality=...       │
+│        └── Resolves: Direct Akamai CDN FLAC url                        │
+│ 3. Priority #2: Tidal Distributed Nodes (Monochrome / Hi-Fi API)       │
+│    └── Fallback: 16-bit / 44.1kHz Lossless FLAC / Hi-Fi                │
+│ 4. Output: AudioTrack Hardware Direct / 24-bit Bit-Perfect Playback    │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### ⚙️ How It Works Under the Hood
+* **Paxsenix Backend Integration (`QobuzAudioProvider.kt`)**:
+  * Prioritizes Paxsenix API when an API key is configured (`QobuzAudioProvider.paxApiKey`).
+  * Queries `https://api.paxsenix.org/qobuz/search?q={query}` with Bearer authentication to match track titles and artists against the official Qobuz catalog.
+  * Requests raw download/stream streams via `https://api.paxsenix.org/dl/qobuz?url=https://open.qobuz.com/track/{id}&quality={quality}`.
+  * Automatically maps requested audio quality across tiers:
+    * `Studio Quality` / `Hi-Res`: 24-bit / up to 192kHz FLAC.
+    * `CD`: 16-bit / 44.1kHz Lossless FLAC.
+    * `320kbps`: 320 kbps MP3.
+  * Extracts direct Akamai CDN streaming URLs (`directUrl`), enabling ExoPlayer to buffer and stream without proxy overhead or intermediary re-encoding.
+* **Tidal Public Node Resiliency (`TidalAudioProvider.kt`)**:
+  * Integrated a distributed fallback array of active public endpoints (`DEFAULT_DOWNLOAD_API_ENDPOINTS`):
+    * `Monochrome (Samidy)` (`https://monochrome-api.samidy.com`)
+    * `Monochrome API` (`https://api.monochrome.tf`)
+    * `Hi-Fi API 1` (`https://hifi-api-w9y8.onrender.com`)
+    * `Hi-Fi API 2` (`https://hifi-api-bffw.onrender.com`)
+  * Automatically balances requests and falls back across nodes if an instance encounters rate limits or downtime.
+* **Lossless Settings UI & Source Verification**:
+  * Added configurable Paxsenix API Key input under **Settings → Lossless Sources → Qobuz**.
+  * Dynamic source status check verifies key readiness in real-time (`SourceCheckService.kt`).
+

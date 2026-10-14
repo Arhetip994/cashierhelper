@@ -32,6 +32,7 @@ import com.unshoo.pixelmusic.data.lossless.constants.QobuzAudioQuality
 import com.unshoo.pixelmusic.data.lossless.constants.QobuzAudioQualityKey
 import com.unshoo.pixelmusic.data.lossless.constants.QobuzEnabledKey
 import com.unshoo.pixelmusic.data.lossless.constants.QobuzInstancesKey
+import com.unshoo.pixelmusic.data.lossless.constants.QobuzPaxApiKeyKey
 import com.unshoo.pixelmusic.data.lossless.constants.QobuzTokensKey
 import com.unshoo.pixelmusic.data.lossless.constants.QobuzVerifiedInstancesKey
 import com.unshoo.pixelmusic.data.lossless.constants.QobuzVerifiedTokensKey
@@ -95,6 +96,7 @@ data class LosslessSourcesUiState(
     val qobuzQuality: QobuzAudioQuality = QobuzAudioQuality.FLAC,
     val qobuzTokens: List<QobuzToken> = emptyList(),
     val qobuzInstances: String = "",
+    val qobuzPaxApiKey: String = "",
     // Deezer
     val deezerEnabled: Boolean = false,
     val deezerQuality: DeezerAudioQuality = DeezerAudioQuality.FLAC,
@@ -150,6 +152,7 @@ class LosslessSourcesViewModel @Inject constructor(
                     qobuzQuality = enumOrDefault(p[QobuzAudioQualityKey], QobuzAudioQuality.FLAC),
                     qobuzTokens = QobuzToken.listFromJson(p[QobuzTokensKey]),
                     qobuzInstances = p[QobuzInstancesKey].orEmpty(),
+                    qobuzPaxApiKey = p[QobuzPaxApiKeyKey].orEmpty(),
                     deezerEnabled = p[DeezerEnabledKey] ?: false,
                     deezerQuality = enumOrDefault(p[DeezerAudioQualityKey], DeezerAudioQuality.FLAC),
                     deezerAccountName = p[DeezerAccountNameKey].orEmpty(),
@@ -360,6 +363,11 @@ class LosslessSourcesViewModel @Inject constructor(
         val normalized = SourceInputParsing.parseUrls(raw).joinToString("\n")
         set(QobuzInstancesKey, normalized)
         set(QobuzVerifiedInstancesKey, null)
+    }
+
+    fun setQobuzPaxApiKey(key: String) {
+        set(QobuzPaxApiKeyKey, key.trim())
+        LosslessStreamResolver.clearAll()
     }
 
     /**

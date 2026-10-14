@@ -26,6 +26,8 @@
     <string name="lossless_qobuz_login_success">Added Qobuz account</string>
     <string name="lossless_qobuz_app_secret_title">Enter Qobuz app secret</string>
     <string name="lossless_qobuz_app_secret_hint">app_secret (from your token source)</string>
+    <string name="lossless_qobuz_paxsenix_key_title">Paxsenix API Key</string>
+    <string name="lossless_qobuz_paxsenix_key_desc">Direct Qobuz Hi-Res / Studio Quality streaming (FLAC up to 24-bit/192 kHz) via Paxsenix.</string>
 
     <!-- Apple Music -->
     <string name="lossless_applemusic_login">Sign in to Apple Music</string>

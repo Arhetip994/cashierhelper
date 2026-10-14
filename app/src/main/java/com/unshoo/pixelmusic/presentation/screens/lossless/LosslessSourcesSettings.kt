@@ -76,9 +76,11 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.view.HapticFeedbackConstantsCompat
+import com.unshoo.pixelmusic.R
 import com.unshoo.pixelmusic.presentation.utils.LocalAppHapticsConfig
 import com.unshoo.pixelmusic.presentation.utils.performAppCompatHapticFeedback
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -320,6 +322,12 @@ fun LosslessSourcesSettings(
                 else "${state.qobuzInstances.lines().count { it.isNotBlank() }} manual URL(s) configured.",
             leadingIcon = { Icon(Icons.Outlined.Dns, null, tint = secondary) },
             onClick = { showQobuzInstancesDialog = true },
+        )
+        AiApiKeyItem(
+            apiKey = state.qobuzPaxApiKey,
+            onApiKeySave = viewModel::setQobuzPaxApiKey,
+            title = stringResource(R.string.lossless_qobuz_paxsenix_key_title),
+            subtitle = stringResource(R.string.lossless_qobuz_paxsenix_key_desc),
         )
         CheckRow(
             source = AudioSourceType.QOBUZ,

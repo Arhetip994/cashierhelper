@@ -96,7 +96,13 @@ object TidalAudioProvider {
     private val DASH_SEGMENT_URL_REGEX = Regex("<SegmentURL\\b[^>]*media=\"([^\"]+)\"", RegexOption.IGNORE_CASE)
     private val XML_UNESCAPED_AMPERSAND_REGEX = Regex("""&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)""")
 
-    private val DEFAULT_DOWNLOAD_API_ENDPOINTS = emptyList<TidalDownloadEndpoint>()
+    private val DEFAULT_DOWNLOAD_API_ENDPOINTS =
+        listOf(
+            TidalDownloadEndpoint("Monochrome (Samidy)", "https://monochrome-api.samidy.com"),
+            TidalDownloadEndpoint("Monochrome API", "https://api.monochrome.tf"),
+            TidalDownloadEndpoint("Hi-Fi API 1", "https://hifi-api-w9y8.onrender.com"),
+            TidalDownloadEndpoint("Hi-Fi API 2", "https://hifi-api-bffw.onrender.com"),
+        )
 
     // PixelMusic: evaluated on each call so a pool URL entered at runtime is honoured.
     private val INSTANCE_DISCOVERY_SOURCES: List<String>
@@ -109,7 +115,7 @@ object TidalAudioProvider {
     private var customEndpoints: List<TidalDownloadEndpoint> = emptyList()
 
     private val activeEndpoints: List<TidalDownloadEndpoint>
-        get() = customEndpoints
+        get() = if (customEndpoints.isNotEmpty()) customEndpoints else DEFAULT_DOWNLOAD_API_ENDPOINTS
 
     val defaultInstanceUrls: List<String>
         get() = DEFAULT_DOWNLOAD_API_ENDPOINTS.map { it.baseUrl }
