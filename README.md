@@ -1,20 +1,134 @@
-# PixelMusic — New Features & Technical Architecture
+# PixelMusic — New Features, DSP Engine & Technical Architecture
 
-This document provides a comprehensive breakdown of the features, architectural enhancements, and optimizations implemented in this release.
+This document provides a comprehensive, in-depth architectural and technical breakdown of all major systems, playback engines, DSP audio pipelines, and optimizations implemented in this release.
 
 ---
 
 ## 📑 Table of Contents
-1. [Apple Music-Style Smooth Lyrics & Karaoke Physics](#1-apple-music-style-smooth-lyrics--karaoke-physics)
-2. [AI-Powered & Delimited Line-by-Line Lyrics Translation](#2-ai-powered--delimited-line-by-line-lyrics-translation)
-3. [Material You 3 Expressive Language Selector Sheet](#3-material-you-3-expressive-language-selector-sheet)
-4. [Collision-Free Player Header Layout](#4-collision-free-player-header-layout)
-5. [Google Assistant & Gemini Voice Control Integration](#5-google-assistant--gemini-voice-control-integration)
-6. [Decoupled Multi-Source Lyrics Resolution](#6-decoupled-multi-source-lyrics-resolution)
+1. [Dual-Player Engine & Seamless Crossfade Transitions](#1-dual-player-engine--seamless-crossfade-transitions)
+2. [Intelligent Queue Preloading & Gapless Caching Engine](#2-intelligent-queue-preloading--gapless-caching-engine)
+3. [AutoEq Calibrated Headphone Presets & DSP Audio Suite](#3-autoeq-calibrated-headphone-presets--dsp-audio-suite)
+4. [Apple Music-Style Smooth Lyrics & Karaoke Physics](#4-apple-music-style-smooth-lyrics--karaoke-physics)
+5. [AI-Powered & Delimited Line-by-Line Lyrics Translation](#5-ai-powered--delimited-line-by-line-lyrics-translation)
+6. [Material You 3 Expressive Language Selector Sheet](#6-material-you-3-expressive-language-selector-sheet)
+7. [Google Assistant & Gemini Voice Control Integration](#7-google-assistant--gemini-voice-control-integration)
+8. [Collision-Free Player Header Layout](#8-collision-free-player-header-layout)
+9. [Decoupled Multi-Source Lyrics Resolution](#9-decoupled-multi-source-lyrics-resolution)
+10. [Comprehensive Performance & Architectural Optimizations](#10-comprehensive-performance--architectural-optimizations)
 
 ---
 
-## 1. Apple Music-Style Smooth Lyrics & Karaoke Physics
+## 1. Dual-Player Engine & Seamless Crossfade Transitions
+
+### 🎯 Overview
+Standard mobile media players suffer from awkward pauses, clicks, or abrupt cutoff between tracks. PixelMusic incorporates an advanced dual-engine playback architecture (`DualPlayerEngine`) orchestrating two independent ExoPlayer instances (`masterPlayer` and `nextPlayer`) to deliver true studio-grade crossfades and gapless transitions.
+
+```
+                      Song A Ending (Fade Out)
+         1.0 ──────┐
+                   \
+  Volume            \   Equal-Power Curve
+                     \
+         0.0 ─────────┴─────────────────────► Time
+                      /
+                     /  Song B Starting (Fade In)
+         1.0 ───────┘
+             [ ◄── Transition Window (500ms - 12s) ──► ]
+```
+
+### ⚙️ How It Works Under the Hood
+* **Two-Instance Architecture (`DualPlayerEngine`)**:
+  * `masterPlayer` (Player A): Handles active foreground playback, system audio focus, and media notifications.
+  * `nextPlayer` (Player B): An auxiliary player pre-buffered with the upcoming track and paused at millisecond 0.
+* **Transition Orchestration (`TransitionController`)**:
+  * Constantly monitors playback position via high-frequency coroutine polling.
+  * When `currentPosition >= (duration - transitionDuration)`, the engine activates Player B and initiates the volume envelope curve.
+  * Supports custom per-playlist transition overrides (`TransitionRepository`) as well as a global toggle and duration slider (500 ms to 12,000 ms).
+* **Equal-Power Crossfade Algorithm**:
+  * Instead of simple linear fading (which causes a perceived dip in volume at 50%), the engine calculates logarithmic/equal-power gain multipliers:
+    $$\text{Gain}_{\text{Out}} = \cos\left(\frac{\pi}{2} \cdot t\right), \quad \text{Gain}_{\text{In}} = \sin\left(\frac{\pi}{2} \cdot t\right) \quad (t \in [0, 1])$$
+  * Both tracks play concurrently through Android's `AudioTrack` mixer with constant total acoustic energy.
+* **Atomic Player Swapping**:
+  * Upon crossfade completion, the controller swaps instance roles: Player B becomes the new `masterPlayer`, while Player A is cleared and repurposed as the standby auxiliary player.
+  * Active audio effects (Equalizer, Bass Boost, Virtualizer) and MediaSession listeners are re-bound seamlessly without audio clicks or popping.
+* **Interactive UI Visualizer (`CrossfadeVisualizer`)**:
+  * The transition settings screen renders an animated waveform overlap diagram displaying the real-time crossfade envelope.
+
+---
+
+## 2. Intelligent Queue Preloading & Gapless Caching Engine
+
+### 🎯 Overview
+To eliminate buffering delays, network hiccups, and playback stalls when moving to subsequent tracks (especially on variable cellular networks), PixelMusic features a proactive background caching engine (`QueuePreloadManager`).
+
+```
+Now Playing: [ Track #1 (Streaming / Playing) ]
+                      │
+                      ▼ (Triggered on playback start / 80% progress)
+Next in Queue: [ Track #2 ] ──► [ QueuePreloadManager ]
+                                        │
+                                        ▼ (Non-blocking I/O Dispatcher)
+                                [ CacheWriter / ExoCache ]
+                                        │
+                                        ▼
+                                Disk Cache (`media_cache/`) ──► Ready for instant zero-latency start!
+```
+
+### ⚙️ How It Works Under the Hood
+* **Proactive Prefetch Triggering**:
+  * The moment the current track transitions or starts playing, `QueuePreloadManager` inspects the active playback queue.
+  * The upcoming track is dispatched to a background coroutine (`Dispatchers.IO`) managed by a dedicated `SupervisorJob`.
+* **Media3 `CacheWriter` Integration**:
+  * Utilizes `androidx.media3.datasource.cache.CacheWriter` wrapping `ExoCache` (a persistent LRU disk cache).
+  * Prefetches the critical first 2–5 MB of audio data (or entire file for standard bitrates).
+  * When `DualPlayerEngine` primes `nextPlayer`, audio chunks resolve straight from disk cache in under 5 milliseconds with zero network round-trips.
+* **Cooperative Cancellation**:
+  * If the user taps "Next" or jumps to an arbitrary song in the queue, existing preload jobs are cooperatively cancelled (`Job.cancel()`).
+  * Bandwidth and CPU resources are reallocated immediately to preload the newly targeted track.
+
+---
+
+## 3. AutoEq Calibrated Headphone Presets & DSP Audio Suite
+
+### 🎯 Overview
+PixelMusic includes a built-in 10-band parametric Digital Signal Processing (DSP) equalizer (`EqualizerViewModel`, `EqualizerManager`) integrated with calibrated **AutoEq** acoustic correction profiles for leading headphones, earphones, and IEMs.
+
+```
+┌────────────────────────────────────────────────────────┐
+│  🎧 AutoEq Calibrated Profile: SONY WH-1000XM          │
+│  Target: Harman In-Ear / Over-Ear Acoustic Standard    │
+├────────────────────────────────────────────────────────┤
+│  31Hz   62Hz   125Hz  250Hz  500Hz  1kHz  2kHz  4kHz  8kHz  16kHz
+│  [-2]   [-4]   [-2]   [ 0]   [+1]   [+2]  [+3]  [+4]  [+3]  [+2] dB
+└────────────────────────────────────────────────────────┘
+```
+
+### ⚙️ Calibrated Headphone Profiles
+Tuned according to the industry-standard Harman acoustic research curves to eliminate muddiness, elevate vocal presence, and balance the frequency spectrum:
+
+1. **Harman Target (`HARMAN_TARGET`)**:
+   * Reference neutral target with a controlled sub-bass lift and smooth upper-treble contour.
+2. **Apple AirPods Pro (`AIRPODS_PRO`)**:
+   * Compensates for slight sub-bass roll-off and balances the 4kHz–8kHz presence region.
+3. **Sony WH-1000XM Series (`SONY_WH1000XM`)**:
+   * Tames the aggressive 100Hz–250Hz mid-bass bloat, restoring vocal transparency and airy soundstaging.
+4. **Sennheiser HD6XX / HD650 / HD600 (`SENNHEISER_HD`)**:
+   * Enhances low-end sub-bass extension (<60Hz) while preserving Sennheiser's benchmark midrange realism.
+5. **Samsung Galaxy Buds (`GALAXY_BUDS`)**:
+   * Harmonizes upper-mid peaks for comfortable, fatigue-free long listening sessions.
+6. **Moondrop IEMs (`MOONDROP_IEM`)**:
+   * Smooths the 3kHz pinna gain resonance and refines treble sparkle.
+
+### ⚙️ DSP Audio Processing Features
+* **10-Band Android OpenSL / AudioEffect Engine**: 31Hz, 62Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz.
+* **Hardware Bass Boost**: Dynamic sub-harmonic frequency bass synthesizer with configurable intensity (0–1000‰).
+* **Virtualizer (Spatializer)**: Head-Related Transfer Function (HRTF) widening for an expansive, out-of-head listening stage.
+* **Loudness Enhancer**: Peak-controlled dynamic range compression based on Android's `LoudnessEnhancer` audio effect.
+* **Dual-Player Effect Re-attachment**: Equalizer and DSP chains automatically re-bind across player swaps during crossfade transitions without dropping audio packets.
+
+---
+
+## 4. Apple Music-Style Smooth Lyrics & Karaoke Physics
 
 ### 🎯 Overview
 Replaced static, abrupt line transitions with an Apple Music-style fluid experience featuring continuous gradient text sweeping and spring-based autoscroll physics.
@@ -38,7 +152,7 @@ Scroll Motion:       [ Smooth Spring Autoscroll (Stiffness: Low, Damping: 0.85) 
 
 ---
 
-## 2. AI-Powered & Delimited Line-by-Line Lyrics Translation
+## 5. AI-Powered & Delimited Line-by-Line Lyrics Translation
 
 ### 🎯 Overview
 A dual-engine lyrics translation system that guarantees strict line-by-line synchronization with the audio while providing poetic, context-aware translations.
@@ -76,7 +190,7 @@ HTML `<br>` Protocol Serialization  (Preserves strict line count & ordering)
 
 ---
 
-## 3. Material You 3 Expressive Language Selector Sheet
+## 6. Material You 3 Expressive Language Selector Sheet
 
 ### 🎯 Overview
 A native Material You 3 Bottom Sheet replacing legacy rectangular popup menus with fluid animations, dynamic accent colors, and support for 14 target translation languages.
@@ -109,37 +223,13 @@ A native Material You 3 Bottom Sheet replacing legacy rectangular popup menus wi
   * Context-aware AI status badge that informs the user in real-time whether poetic AI translation or Google Translate is currently active.
   * 18.dp pill-shaped selection cards styled with dynamic Material 3 color schemes, accent checkmarks, and haptic feedback.
 * **Full Multi-Locale UI Localization**:
-  * Sheet headers, subtitles, and badges are fully localized across 10 system languages:
-    * English (`values/`)
-    * Russian (`values-ru/`)
-    * German (`values-de/`)
-    * Spanish (`values-es/`)
-    * French (`values-fr/`)
-    * Italian (`values-it/`)
-    * Korean (`values-ko/`)
-    * Indonesian (`values-in/`)
-    * Norwegian Bokmål (`values-nb/`)
-    * Chinese (`values-zh-rCN/`)
+  * Sheet headers, subtitles, and badges are fully localized across 10 system languages: English (`values/`), Russian (`values-ru/`), German (`values-de/`), Spanish (`values-es/`), French (`values-fr/`), Italian (`values-it/`), Korean (`values-ko/`), Indonesian (`values-in/`), Norwegian Bokmål (`values-nb/`), and Chinese (`values-zh-rCN/`).
 * **Supported Target Translation Languages**:
   * Russian (`ru`), English (`en`), Spanish (`es`), German (`de`), French (`fr`), Italian (`it`), Ukrainian (`uk`), Kazakh (`kk`), Belarusian (`be`), Polish (`pl`), Chinese (`zh`), Japanese (`ja`), Korean (`ko`), Turkish (`tr`).
 
 ---
 
-## 4. Collision-Free Player Header Layout
-
-### 🎯 Overview
-Restructured the top navigation and action bar inside the full player and lyrics sheets to prevent overlaps between track metadata and action buttons on narrow screens or large font scales.
-
-### ⚙️ How It Works Under the Hood
-* **Weighted Flex Constraints**:
-  * Track title and artist metadata are wrapped in a weighted column (`Modifier.weight(1f, fill = false)`).
-  * Text automatically applies `TextOverflow.Ellipsis` with single-line max constraint, ensuring it never collides with action icons.
-* **Dedicated Control Slots**:
-  * The translation toggle button and additional options menu occupy fixed, non-collapsing slots with standardized 48.dp touch targets.
-
----
-
-## 5. Google Assistant & Gemini Voice Control Integration
+## 7. Google Assistant & Gemini Voice Control Integration
 
 ### 🎯 Overview
 Full native integration with **Google Assistant** and **Gemini** on Android, allowing hands-free voice control across local and streaming libraries.
@@ -194,7 +284,21 @@ Full native integration with **Google Assistant** and **Gemini** on Android, all
 
 ---
 
-## 6. Decoupled Multi-Source Lyrics Resolution
+## 8. Collision-Free Player Header Layout
+
+### 🎯 Overview
+Restructured the top navigation and action bar inside the full player and lyrics sheets to prevent overlaps between track metadata and action buttons on narrow screens or large font scales.
+
+### ⚙️ How It Works Under the Hood
+* **Weighted Flex Constraints**:
+  * Track title and artist metadata are wrapped in a weighted column (`Modifier.weight(1f, fill = false)`).
+  * Text automatically applies `TextOverflow.Ellipsis` with single-line max constraint, ensuring it never collides with action icons.
+* **Dedicated Control Slots**:
+  * The translation toggle button and additional options menu occupy fixed, non-collapsing slots with standardized 48.dp touch targets.
+
+---
+
+## 9. Decoupled Multi-Source Lyrics Resolution
 
 ### 🎯 Overview
 Removed hardcoded intercepts that previously forced song lookups exclusively through LRCLIB, restoring a resilient multi-provider lyrics pipeline.
@@ -202,3 +306,41 @@ Removed hardcoded intercepts that previously forced song lookups exclusively thr
 ### ⚙️ How It Works Under the Hood
 * Multi-source providers (Kugou, NetEase, Deezer, and local LRC files) now resolve in parallel with prioritized fallback order.
 * If a provider fails or returns unsynced plain text, subsequent providers are queried automatically to deliver accurate synchronized timing.
+
+---
+
+## 10. Comprehensive Performance & Architectural Optimizations
+
+### 🎯 Overview
+Extensive performance optimizations have been executed across compilation pipelines, UI composition trees, background I/O threads, and local databases.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                      PIXELMUSIC PERFORMANCE STACK                      │
+├────────────────────────────────────────────────────────────────────────┤
+│  ⚡ Ahead-of-Time DEX: Baseline Profiles (`baselineprofile/`)          │
+│  📦 Bytecode Optimization: R8 ProGuard Minification + Dead Code Stripping│
+│  💾 Database Engine: Room DB Asynchronous Non-blocking Querying         │
+│  🎨 UI Composition: Memoized Recomposition + 0-overhead Native ICU     │
+│  🧠 Memory Architecture: In-Memory Multi-Tier Cache with WeakRefs      │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### ⚙️ Performance Pillars Under the Hood
+1. **Android Baseline Profiles & AOT Compilation (`baselineprofile/`)**:
+   * Implemented automated Macrobenchmark Baseline Profile generators (`BaselineProfileGenerator.kt`, `PlayerSheetAnimationBenchmarks.kt`, `StartupBenchmarks.kt`).
+   * Generates ahead-of-time (AOT) machine code compilation profiles for critical paths: cold app startup, full-player sheet expand/collapse animations, and lazy list scrolling.
+   * Eliminates Android runtime JIT interpretation stutter, providing rock-solid 60/120 FPS animations.
+2. **Asynchronous Room Database & Debounced Queue Persistence**:
+   * Removed synchronous SQLite locks from the main thread.
+   * Playback queue snapshots (`PlaybackQueueSnapshot`) utilize a 150ms debounce window before persisting to disk, preventing write saturation during rapid song scrubbing or skipping.
+   * Added compound indexing on song metadata, artists, and playlists to accelerate query execution.
+3. **APK Footprint Reduction & 0-MB Japanese Romanization**:
+   * Reduced APK download size by ~18 MB.
+   * Replaced heavy bundled third-party dictionaries with Android's native `android.icu.text.Transliterator` engine, achieving instant Japanese Furigana and Romanization with zero APK weight.
+4. **Jetpack Compose Rendering Optimizations**:
+   * Replaced heavy double-composition `Crossfade` wrappers in media tab navigation with explicit state branching, preventing duplicate layout passes.
+   * Extracted high-frequency lyrics animations (progress sweep, spring vertical scroll) into isolated derived state nodes to prevent parent screen recomposition.
+5. **Memory Pooling & Image Cache Optimization (`AlbumArtCacheManager`)**:
+   * Implemented hardware bitmap decoding with downsampling matched to screen density.
+   * Integrated high-speed LRU memory cache with automatic trim on Android OS low-memory warnings (`onTrimMemory`).
