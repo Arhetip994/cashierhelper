@@ -1,0 +1,597 @@
+package com.unshoo.pixelmusic.data
+
+import android.content.Context
+import android.util.Log
+import com.google.gson.Gson
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
+import com.google.gson.reflect.TypeToken
+import com.unshoo.pixelmusic.data.database.EngagementDao
+import com.unshoo.pixelmusic.data.database.SongEngagementEntity
+import com.unshoo.pixelmusic.data.model.Song
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import java.io.File
+import java.util.Calendar
+import java.util.LinkedHashSet
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class DailyMixManager @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val engagementDao: EngagementDao
+) {
+
+    private val gson = Gson()
+    private val legacyScoresFile = File(context.filesDir, "song_scores.json")
+    private val fileLock = Any()
+    private val statsType = object : TypeToken<MutableMap<String, SongEngagementStats>>() {}.type
+
+    // P2-2: Async migration scope — migration runs on IO without blocking the main thread.
+    private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Deferred result: null if no migration needed, completes when done.
+    private val migrationDeferred: Deferred<Unit>
+
+    // Flag to track if we've migrated legacy data
+    private var legacyMigrationComplete = false
+
+    data class SongEngagementStats(
+        val playCount: Int = 0,
+        val totalPlayDurationMs: Long = 0L,
+        val lastPlayedTimestamp: Long = 0L
+    )
+
+    init {
+        // P2-2: Launch migration asynchronously — does NOT block the calling thread.
+        // Any method that needs migrated data should call migrationDeferred.await() first.
+        migrationDeferred = managerScope.async {
+            migrateLegacyDataIfNeeded()
+        }
+    }
+
+    /**
+     * Migrates engagements from legacy JSON file to Room database.
+     * This runs once on startup if the legacy file exists.
+     * P2-2: This is now a suspend fun running on an IO coroutine, so no runBlocking needed.
+     * The synchronized block only guards the file read (no suspension points inside).
+     */
+    private suspend fun migrateLegacyDataIfNeeded() {
+        if (legacyMigrationComplete || !legacyScoresFile.exists()) {
+            legacyMigrationComplete = true
+            return
+        }
+
+        // Read legacy data within the lock (only file I/O —  no suspend calls allowed inside synchronized)
+        val entitiesToInsert: List<SongEngagementEntity>? = synchronized(fileLock) {
+            if (legacyMigrationComplete) return@synchronized null
+
+            try {
+                val legacyData = readLegacyEngagementsLocked()
+                if (legacyData.isNotEmpty()) {
+                    legacyData.map { (songId, stats) ->
+                        SongEngagementEntity(
+                            songId = songId,
+                            playCount = stats.playCount.coerceAtLeast(0),
+                            totalPlayDurationMs = stats.totalPlayDurationMs.coerceAtLeast(0L),
+                            lastPlayedTimestamp = stats.lastPlayedTimestamp.coerceAtLeast(0L)
+                        )
+                    }
+                } else null
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to read legacy engagement data", e)
+                null
+            }
+        }
+
+        // Perform the suspend DB call outside the synchronized block
+        if (entitiesToInsert != null) {
+            try {
+                engagementDao.upsertEngagements(entitiesToInsert)
+                Log.i(TAG, "Migrated ${entitiesToInsert.size} engagement records from JSON to Room")
+
+                // Rename legacy file as backup instead of deleting
+                val backupFile = File(context.filesDir, "song_scores.json.bak")
+                legacyScoresFile.renameTo(backupFile)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to insert legacy engagement data into Room", e)
+            }
+        }
+
+        legacyMigrationComplete = true
+    }
+
+    /**
+     * Reads engagements from Room database.
+     * P2-2: Awaits migration completion before querying, ensuring data consistency
+     * without blocking any thread at startup.
+     */
+    private suspend fun readEngagements(songIds: Collection<String>? = null): Map<String, SongEngagementStats> {
+        migrationDeferred.await()
+        val engagements = if (songIds == null) {
+            engagementDao.getAllEngagements()
+        } else {
+            songIds.distinct().chunked(800).flatMap { engagementDao.getEngagementsBySongIds(it) }
+        }
+        return engagements.associate { entity ->
+            entity.songId to SongEngagementStats(
+                playCount = entity.playCount,
+                totalPlayDurationMs = entity.totalPlayDurationMs,
+                lastPlayedTimestamp = entity.lastPlayedTimestamp
+            )
+        }
+    }
+
+    /**
+     * Legacy method to read from JSON file during migration.
+     */
+    private fun readLegacyEngagementsLocked(): MutableMap<String, SongEngagementStats> {
+        if (!legacyScoresFile.exists()) {
+            return mutableMapOf()
+        }
+
+        val raw = runCatching { legacyScoresFile.readText() }
+            .onFailure { Log.e(TAG, "Failed to read legacy song scores file", it) }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: return mutableMapOf()
+
+        return runCatching {
+            val element = gson.fromJson(raw, JsonElement::class.java)
+            parseEngagementElement(element)
+        }.getOrElse { throwable ->
+            Log.e(TAG, "Failed to parse legacy song scores file", throwable)
+            mutableMapOf()
+        }
+    }
+
+    private fun parseEngagementElement(element: JsonElement?): MutableMap<String, SongEngagementStats> {
+        if (element == null || element.isJsonNull) {
+            return mutableMapOf()
+        }
+
+        if (element.isJsonObject) {
+            return parseEngagementObject(element.asJsonObject)
+        }
+
+        return runCatching {
+            val parsed: MutableMap<String, SongEngagementStats> = gson.fromJson(element, statsType)
+            parsed.mapValuesTo(mutableMapOf()) { (_, stats) -> sanitizeStats(stats) }
+        }.getOrElse {
+            Log.w(TAG, "Unsupported song engagement format, ignoring it")
+            mutableMapOf()
+        }
+    }
+
+    private fun parseEngagementObject(obj: JsonObject): MutableMap<String, SongEngagementStats> {
+        val result = mutableMapOf<String, SongEngagementStats>()
+        for ((key, value) in obj.entrySet()) {
+            val stats = parseStatsValue(key, value)
+            if (stats != null) {
+                result[key] = stats
+            } else {
+                Log.w(TAG, "Skipping song engagement entry for \"$key\" because it could not be parsed: $value")
+            }
+        }
+        return result
+    }
+
+    private fun parseStatsValue(key: String, value: JsonElement): SongEngagementStats? {
+        if (value.isJsonObject) {
+            val parsedStats = runCatching {
+                gson.fromJson(value, SongEngagementStats::class.java)
+            }.getOrNull()
+
+            if (parsedStats != null) {
+                return sanitizeStats(parsedStats)
+            }
+
+            val extracted = extractScore(value)
+            if (extracted != null) {
+                return SongEngagementStats(playCount = extracted)
+            }
+        } else {
+            val extracted = extractScore(value)
+            if (extracted != null) {
+                return SongEngagementStats(playCount = extracted)
+            }
+        }
+
+        Log.w(TAG, "Encountered unsupported engagement value for \"$key\": $value")
+        return null
+    }
+
+    private fun extractScore(value: JsonElement): Int? {
+        if (value.isJsonPrimitive) {
+            val primitive = value.asJsonPrimitive
+            return when {
+                primitive.isNumber -> primitive.asNumber.toInt()
+                primitive.isString -> primitive.asString.toIntOrNull()
+                else -> null
+            }
+        }
+
+        if (value.isJsonObject) {
+            val obj = value.asJsonObject
+            for (key in SCORE_KEY_CANDIDATES) {
+                val candidate = obj.get(key)
+                if (candidate != null && candidate.isJsonPrimitive) {
+                    val primitive = candidate.asJsonPrimitive
+                    val parsed = when {
+                        primitive.isNumber -> primitive.asNumber.toInt()
+                        primitive.isString -> primitive.asString.toIntOrNull()
+                        else -> null
+                    }
+                    if (parsed != null) {
+                        return parsed
+                    }
+                }
+            }
+        }
+
+        return null
+    }
+
+    private fun sanitizeStats(stats: SongEngagementStats): SongEngagementStats {
+        return stats.copy(
+            playCount = stats.playCount.coerceAtLeast(0),
+            totalPlayDurationMs = stats.totalPlayDurationMs.coerceAtLeast(0L),
+            lastPlayedTimestamp = stats.lastPlayedTimestamp.coerceAtLeast(0L)
+        )
+    }
+
+    /**
+     * Records a song play using Room's atomic upsert operation.
+     * More efficient than JSON read-modify-write.
+     */
+    suspend fun recordPlay(
+        songId: String,
+        songDurationMs: Long = 0L,
+        timestamp: Long = System.currentTimeMillis()
+    ) {
+        // PERF: was engagementDao.recordPlay(...). That single call invalidated all 20 MusicDao
+        // queries whose membership predicate read song_engagements, on every song transition, even
+        // though `play_count > 0` is monotonic and the increment cannot change any result set.
+        // recordPlayAndMarkMembership() keeps the counter write and puts the membership signal
+        // in the append-only library_membership table via INSERT OR IGNORE, which fires no trigger
+        // - and therefore causes no invalidation - for every play after the first.
+        engagementDao.recordPlayAndMarkMembership(
+            songId = songId,
+            durationMs = songDurationMs.coerceAtLeast(0L),
+            timestamp = timestamp.coerceAtLeast(0L)
+        )
+    }
+
+    suspend fun incrementScore(songId: String) {
+        recordPlay(songId)
+    }
+
+    suspend fun getScore(songId: String): Int {
+        return engagementDao.getPlayCount(songId) ?: 0
+    }
+
+    suspend fun getEngagementStats(songId: String): SongEngagementStats? {
+        return engagementDao.getEngagement(songId)?.let { entity ->
+            SongEngagementStats(
+                playCount = entity.playCount,
+                totalPlayDurationMs = entity.totalPlayDurationMs,
+                lastPlayedTimestamp = entity.lastPlayedTimestamp
+            )
+        }
+    }
+
+    suspend fun getAllEngagementStats(): Map<String, SongEngagementStats> {
+        return readEngagements()
+    }
+
+    /**
+     * OPTIMIZED: Previously ran heavy ranking on caller's dispatcher (often Main/IO).
+     * Now explicitly offloaded to Dispatchers.Default for CPU-intensive work,
+     * and uses early pre-filtering to avoid O(N) map operations for large libraries.
+     */
+    private suspend fun computeRankedSongs(
+        allSongs: List<Song>,
+        favoriteSongIds: Set<String>,
+        random: java.util.Random,
+        seed: Long = 0L
+    ): List<RankedSong> = kotlinx.coroutines.withContext(Dispatchers.Default) {
+        if (allSongs.isEmpty()) return@withContext emptyList()
+
+        val engagements = readEngagements(allSongs.map { it.id })
+        // Fast path: if engagements empty, skip affinity computation
+        val hasEngagements = engagements.isNotEmpty()
+        val songById = if (hasEngagements) allSongs.associateBy { it.id } else emptyMap()
+        val now = System.currentTimeMillis()
+
+        val artistAffinity = mutableMapOf<Long, Double>()
+        val genreAffinity = mutableMapOf<String, Double>()
+
+        if (hasEngagements) {
+            engagements.forEach { (songId, stats) ->
+                val song = songById[songId] ?: return@forEach
+                val weight = stats.playCount.toDouble() + (stats.totalPlayDurationMs / 60000.0)
+                if (weight <= 0) return@forEach
+                artistAffinity[song.artistId] = (artistAffinity[song.artistId] ?: 0.0) + weight
+                song.genre?.lowercase()?.let { g ->
+                    genreAffinity[g] = (genreAffinity[g] ?: 0.0) + weight
+                }
+            }
+        }
+
+        val favoriteArtistWeights = mutableMapOf<Long, Int>()
+        if (favoriteSongIds.isNotEmpty()) {
+            favoriteSongIds.forEach { id ->
+                val song = songById[id] ?: allSongs.find { it.id == id } ?: return@forEach
+                favoriteArtistWeights[song.artistId] = (favoriteArtistWeights[song.artistId] ?: 0) + 1
+            }
+        }
+
+        val maxPlayCount = engagements.values.maxOfOrNull { it.playCount }?.takeIf { it > 0 } ?: 1
+        val maxDuration = engagements.values.maxOfOrNull { it.totalPlayDurationMs }?.takeIf { it > 0L } ?: 1L
+        val maxArtistAffinity = artistAffinity.values.maxOrNull()?.takeIf { it > 0 } ?: 1.0
+        val maxGenreAffinity = genreAffinity.values.maxOrNull()?.takeIf { it > 0 } ?: 1.0
+        val maxFavoriteArtist = favoriteArtistWeights.values.maxOrNull()?.takeIf { it > 0 } ?: 1
+
+        allSongs.map { song ->
+            val stats = engagements[song.id]
+            val playCountScore = (stats?.playCount?.toDouble() ?: 0.0) / maxPlayCount
+            val durationScore = (stats?.totalPlayDurationMs?.toDouble() ?: 0.0) / maxDuration
+            val affinityScore = (playCountScore * 0.7 + durationScore * 0.3).coerceIn(0.0, 1.0)
+
+            val genreKey = song.genre?.lowercase()
+            val artistPreference = (artistAffinity[song.artistId] ?: 0.0) / maxArtistAffinity
+            val genrePreference = if (genreKey != null) (genreAffinity[genreKey] ?: 0.0) / maxGenreAffinity else 0.0
+            val favoriteArtistPreference = (favoriteArtistWeights[song.artistId]?.toDouble() ?: 0.0) / maxFavoriteArtist
+            val preferenceScore = maxOf(artistPreference, genrePreference, favoriteArtistPreference)
+
+            val recencyScore = computeRecencyScore(stats?.lastPlayedTimestamp, now)
+            val noveltyScore = computeNoveltyScore(song.dateAdded, now)
+            val favoriteScore = if (favoriteSongIds.contains(song.id)) 1.0 else 0.0
+            val baselineScore = if (stats == null) 0.1 else 0.0
+            val rotationJitter = ((song.id.hashCode() + seed).and(0x7FFFFFFF) % 1000) / 1000.0 * 0.18
+            val noise = random.nextDouble() * 0.12
+
+            val finalScore = (preferenceScore * 0.40) +
+                (affinityScore * 0.20) +
+                (recencyScore * 0.15) +
+                (favoriteScore * 0.10) +
+                (noveltyScore * 0.05) +
+                baselineScore + rotationJitter + noise
+
+            val discoveryScore = ((1.0 - affinityScore).coerceIn(0.0, 1.0) * 0.5) +
+                (noveltyScore * 0.3) +
+                (preferenceScore * 0.2) +
+                (((song.id.hashCode() + seed * 31).and(0x7FFFFFFF) % 1000) / 1000.0 * 0.15)
+
+            RankedSong(
+                song = song,
+                finalScore = if (finalScore.isNaN() || finalScore.isInfinite()) 0.0 else finalScore,
+                discoveryScore = if (discoveryScore.isNaN() || discoveryScore.isInfinite()) 0.0 else discoveryScore,
+                affinityScore = affinityScore,
+                recencyScore = recencyScore,
+                noveltyScore = noveltyScore,
+                favoriteScore = favoriteScore
+            )
+        }.sortedWith(compareByDescending<RankedSong> { it.finalScore }.thenBy { it.song.id })
+    }
+
+    suspend fun generateDailyMix(
+        allSongs: List<Song>,
+        favoriteSongIds: Set<String> = emptySet(),
+        limit: Int = 30,
+        seedSalt: Long = 0L
+    ): List<Song> {
+        if (allSongs.isEmpty()) {
+            return emptyList()
+        }
+
+        val calendar = Calendar.getInstance()
+        val daySeed = calendar.get(Calendar.YEAR) * 1000L + calendar.get(Calendar.DAY_OF_YEAR)
+        val finalSeed = if (seedSalt != 0L) daySeed xor seedSalt else daySeed
+        val random = java.util.Random(finalSeed)
+
+        val rankedSongs = computeRankedSongs(allSongs, favoriteSongIds, random, finalSeed)
+        if (rankedSongs.isEmpty()) {
+            return allSongs.shuffled(random).take(limit.coerceAtMost(allSongs.size))
+        }
+
+        val coreLimit = (limit * 0.45).toInt().coerceAtLeast(3)
+        val discoveryLimit = (limit * 0.35).toInt().coerceAtLeast(2)
+        val varietyLimit = (limit - coreLimit - discoveryLimit).coerceAtLeast(0)
+
+        // 1. Core / Top affinity songs with rotational variety
+        val coreSection = pickWithDiversity(rankedSongs, favoriteSongIds, coreLimit)
+        val selectedIds = coreSection.map { it.id }.toMutableSet()
+
+        // 2. Discovery candidates (gems not played recently or new library additions)
+        val discoveryCandidates = rankedSongs
+            .filterNot { selectedIds.contains(it.song.id) }
+            .sortedWith(compareByDescending<RankedSong> { it.discoveryScore }.thenBy { it.song.id })
+        val discoverySection = pickWithDiversity(discoveryCandidates, favoriteSongIds, discoveryLimit)
+        selectedIds.addAll(discoverySection.map { it.id })
+
+        // 3. Variety section (randomized rotation from the rest of the library)
+        val varietyCandidates = rankedSongs
+            .filterNot { selectedIds.contains(it.song.id) }
+            .shuffled(random)
+        val varietySection = pickWithDiversity(varietyCandidates, favoriteSongIds, varietyLimit)
+        selectedIds.addAll(varietySection.map { it.id })
+
+        val combined = (coreSection + discoverySection + varietySection).toMutableList()
+        if (combined.size < limit) {
+            val remaining = allSongs
+                .filterNot { selectedIds.contains(it.id) }
+                .shuffled(random)
+            combined.addAll(remaining.take(limit - combined.size))
+        }
+
+        return combined.take(limit)
+    }
+
+    suspend fun generateYourMix(
+        allSongs: List<Song>,
+        favoriteSongIds: Set<String> = emptySet(),
+        limit: Int = 60,
+        seedSalt: Long = 0L
+    ): List<Song> {
+        if (allSongs.isEmpty()) {
+            return emptyList()
+        }
+
+        val calendar = Calendar.getInstance()
+        val daySeed = calendar.get(Calendar.YEAR) * 1000L + calendar.get(Calendar.DAY_OF_YEAR) + 17L
+        val finalSeed = if (seedSalt != 0L) daySeed xor seedSalt else daySeed
+        val random = java.util.Random(finalSeed)
+        val rankedSongs = computeRankedSongs(allSongs, favoriteSongIds, random, finalSeed)
+
+        if (rankedSongs.isEmpty()) {
+            return allSongs.shuffled(random).take(limit.coerceAtMost(allSongs.size))
+        }
+
+        val favoriteSectionSize = (limit * 0.3).toInt().coerceAtLeast(5).coerceAtMost(limit)
+        val coreSectionSize = (limit * 0.45).toInt().coerceAtLeast(10).coerceAtMost(limit)
+        val discoverySectionSize = (limit - favoriteSectionSize - coreSectionSize).coerceAtLeast(0)
+
+        val favoriteSection = pickWithDiversity(
+            rankedSongs.filter { favoriteSongIds.contains(it.song.id) },
+            favoriteSongIds,
+            favoriteSectionSize
+        )
+
+        val alreadySelectedIds = favoriteSection.map { it.id }.toMutableSet()
+
+        val coreSection = pickWithDiversity(
+            rankedSongs.filterNot { alreadySelectedIds.contains(it.song.id) },
+            favoriteSongIds,
+            coreSectionSize
+        )
+
+        alreadySelectedIds.addAll(coreSection.map { it.id })
+
+        val discoveryCandidates = rankedSongs
+            .filterNot { alreadySelectedIds.contains(it.song.id) }
+            .sortedWith(compareByDescending<RankedSong> { it.discoveryScore }.thenBy { it.song.id })
+
+        val discoverySection = pickWithDiversity(discoveryCandidates, favoriteSongIds, discoverySectionSize)
+
+        val orderedResult = LinkedHashSet<Song>()
+        orderedResult.addAll(favoriteSection)
+        orderedResult.addAll(coreSection)
+        orderedResult.addAll(discoverySection)
+
+        if (orderedResult.size < limit) {
+            val filler = allSongs
+                .filterNot { orderedResult.any { selected -> selected.id == it.id } }
+                .shuffled(random)
+            for (song in filler) {
+                orderedResult.add(song)
+                if (orderedResult.size >= limit) break
+            }
+        }
+
+        return orderedResult.take(limit.coerceAtMost(orderedResult.size))
+    }
+
+    /**
+     * Gets a localized, non-randomized, highly curated list of candidates
+     * optimized to be sent to an LLM for thematic playlist generation.
+     */
+    suspend fun getTopCandidatesForAi(
+        allSongs: List<Song>,
+        favoriteSongIds: Set<String> = emptySet(),
+        limit: Int = 100
+    ): List<Song> {
+        if (allSongs.isEmpty()) {
+            return emptyList()
+        }
+
+        // Use a static seed per day to ensure the AI doesn't get wildly different lists
+        // if called multiple times in one day, preserving prompt caching.
+        val calendar = Calendar.getInstance()
+        val seed = calendar.get(Calendar.YEAR) * 1000 + calendar.get(Calendar.DAY_OF_YEAR) + 42
+        val random = java.util.Random(seed.toLong())
+
+        val rankedSongs = computeRankedSongs(allSongs, favoriteSongIds, random, seed.toLong())
+        if (rankedSongs.isEmpty()) {
+            return allSongs.take(limit.coerceAtMost(allSongs.size))
+        }
+
+        return rankedSongs.take(limit).map { it.song }
+    }
+
+    private fun pickWithDiversity(
+        rankedSongs: List<RankedSong>,
+        favoriteSongIds: Set<String>,
+        limit: Int
+    ): List<Song> {
+        if (limit <= 0 || rankedSongs.isEmpty()) return emptyList()
+
+        val selected = mutableListOf<Song>()
+        val artistCounts = mutableMapOf<Long, Int>()
+
+        for (candidate in rankedSongs) {
+            if (selected.size >= limit) break
+            val artistId = candidate.song.artistId
+            val maxPerArtist = if (favoriteSongIds.contains(candidate.song.id)) 2 else 1
+            val currentCount = artistCounts.getOrDefault(artistId, 0)
+            if (currentCount >= maxPerArtist) continue
+
+            selected += candidate.song
+            artistCounts[artistId] = currentCount + 1
+        }
+
+        if (selected.size < limit) {
+            for (candidate in rankedSongs) {
+                if (selected.size >= limit) break
+                if (selected.any { it.id == candidate.song.id }) continue
+                selected += candidate.song
+            }
+        }
+
+        return selected.take(limit)
+    }
+
+    private fun computeRecencyScore(lastPlayedTimestamp: Long?, now: Long): Double {
+        if (lastPlayedTimestamp == null || lastPlayedTimestamp <= 0L) return 0.6
+        val daysSinceLastPlay = ((now - lastPlayedTimestamp).coerceAtLeast(0L) / TimeUnit.DAYS.toMillis(1)).toDouble()
+        return when {
+            daysSinceLastPlay < 1 -> 0.2
+            daysSinceLastPlay < 3 -> 0.5
+            daysSinceLastPlay < 7 -> 0.7
+            daysSinceLastPlay < 14 -> 0.85
+            else -> 1.0
+        }
+    }
+
+    private fun computeNoveltyScore(dateAdded: Long, now: Long): Double {
+        if (dateAdded <= 0L) return 0.0
+        val dateAddedMillis = if (dateAdded < 10_000_000_000L) {
+            TimeUnit.SECONDS.toMillis(dateAdded)
+        } else {
+            dateAdded
+        }
+        val daysSinceAdded = ((now - dateAddedMillis).coerceAtLeast(0L) / TimeUnit.DAYS.toMillis(1)).toDouble()
+        return (1.0 - (daysSinceAdded / 60.0)).coerceIn(0.0, 1.0)
+    }
+
+    private data class RankedSong(
+        val song: Song,
+        val finalScore: Double,
+        val discoveryScore: Double,
+        val affinityScore: Double,
+        val recencyScore: Double,
+        val noveltyScore: Double,
+        val favoriteScore: Double
+    )
+
+    companion object {
+        private const val TAG = "DailyMixManager"
+        private val SCORE_KEY_CANDIDATES = listOf("score", "count", "value")
+    }
+}

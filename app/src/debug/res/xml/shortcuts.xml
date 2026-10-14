@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Static shortcut: Shuffle all songs -->
+    <shortcut
+        android:shortcutId="shuffle_all"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_shuffle"
+        android:shortcutShortLabel="@string/shortcut_shuffle_short"
+        android:shortcutLongLabel="@string/shortcut_shuffle_long">
+        <intent
+            android:action="com.unshoo.pixelmusic.ACTION_SHUFFLE_ALL"
+            android:targetPackage="com.unshoo.pixelmusic.debug"
+            android:targetClass="com.unshoo.pixelmusic.MainActivity" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+
+    <!-- Google Assistant App Actions: Play Music -->
+    <capability android:name="actions.intent.PLAY_MUSIC">
+        <intent
+            android:action="android.media.action.MEDIA_PLAY_FROM_SEARCH"
+            android:targetPackage="com.unshoo.pixelmusic.debug"
+            android:targetClass="com.unshoo.pixelmusic.MainActivity">
+            <parameter
+                android:name="music.recording.name"
+                android:key="query" />
+            <parameter
+                android:name="music.musicArtist.name"
+                android:key="android.intent.extra.artist" />
+            <parameter
+                android:name="music.musicAlbum.name"
+                android:key="android.intent.extra.album" />
+            <parameter
+                android:name="music.musicPlaylist.name"
+                android:key="android.intent.extra.playlist" />
+            <parameter
+                android:name="music.genre.name"
+                android:key="android.intent.extra.genre" />
+        </intent>
+    </capability>
+
+    <!-- Google Assistant App Actions: Pause Music -->
+    <capability android:name="actions.intent.PAUSE_MUSIC">
+        <intent
+            android:action="com.unshoo.pixelmusic.action.PAUSE"
+            android:targetPackage="com.unshoo.pixelmusic.debug"
+            android:targetClass="com.unshoo.pixelmusic.MainActivity" />
+    </capability>
+
+    <!-- Google Assistant App Actions: Resume Music -->
+    <capability android:name="actions.intent.RESUME_MUSIC">
+        <intent
+            android:action="com.unshoo.pixelmusic.action.RESUME"
+            android:targetPackage="com.unshoo.pixelmusic.debug"
+            android:targetClass="com.unshoo.pixelmusic.MainActivity" />
+    </capability>
+
+    <!-- Google Assistant App Actions: Stop Music -->
+    <capability android:name="actions.intent.STOP_MUSIC">
+        <intent
+            android:action="com.unshoo.pixelmusic.action.STOP"
+            android:targetPackage="com.unshoo.pixelmusic.debug"
+            android:targetClass="com.unshoo.pixelmusic.MainActivity" />
+    </capability>
+</shortcuts>

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Base app theme -->
+    <style name="Theme.PixelMusic" parent="Theme.Material3.DynamicColors.DayNight">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="bottomSheetDialogTheme">@style/CustomBottomSheetDialogTheme</item>
+    </style>
+
+    <style name="CustomBottomSheetDialogTheme" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <style name="Theme.PixelMusic.ExternalPlayer" parent="Theme.Material3.DynamicColors.DayNight">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+    </style>
+
+    <!-- Splash screen theme (AndroidX Core SplashScreen) — brand-colored background + launcher icon,
+         then hand off to the app theme as soon as the first frame is ready (see MainActivity). -->
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/light_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_blue_purple</item>
+        <item name="postSplashScreenTheme">@style/Theme.PixelMusic</item>
+    </style>
+
+    <style name="Theme.App.Starting.BluePurple" parent="Theme.App.Starting">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_blue_purple</item>
+    </style>
+
+    <style name="Theme.App.Starting.Graphite" parent="Theme.App.Starting">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_graphite</item>
+    </style>
+
+    <style name="Theme.App.Starting.OrangeYellow" parent="Theme.App.Starting">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_orange_yellow</item>
+    </style>
+
+    <style name="Theme.App.Starting.LimeGreen" parent="Theme.App.Starting">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_lime_green</item>
+    </style>
+
+    <style name="Theme.App.Starting.BabyPinkPurple" parent="Theme.App.Starting">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_baby_pink_purple</item>
+    </style>
+
+    <style name="Theme.App.Starting.LimeLemon" parent="Theme.App.Starting">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_lime_lemon</item>
+    </style>
+</resources>

@@ -1,0 +1,466 @@
+import java.util.Properties
+
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.dagger.hilt.android)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.baselineprofile)
+    id("kotlin-parcelize")
+}
+
+// Load keystore properties early to avoid unresolved references inside the android block
+val keystoreProperties = Properties().apply {
+    val propFile = rootProject.file("keystore.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
+val localProperties = Properties().apply {
+    val propFile = rootProject.file("local.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
+val enableAbiSplits = providers.gradleProperty("pixelmusic.enableAbiSplits")
+    .getOrElse("true")
+    .toBoolean()
+
+val enableComposeCompilerReports = providers.gradleProperty("pixelmusic.enableComposeCompilerReports")
+    .getOrElse("false")
+    .toBoolean()
+
+val onlyArm64 = providers.gradleProperty("pixelmusic.onlyArm64")
+    .getOrElse("false")
+    .toBoolean()
+
+@Suppress("DEPRECATION")
+android {
+    namespace = "com.unshoo.pixelmusic"
+    compileSdk = 37
+
+    sourceSets {
+        getByName("androidTest") {
+            assets.directories.add(file("$projectDir/schemas").path)
+        }
+    }
+
+    androidResources {
+        noCompress.add("tflite")
+    }
+
+    packaging {
+        resources {
+            excludes += listOf(
+                "META-INF/INDEX.LIST",
+                "META-INF/DEPENDENCIES",
+                "/META-INF/io.netty.versions.properties",
+                "META-INF/CONTRIBUTORS.md",
+                "META-INF/NOTICE.txt",
+                "META-INF/NOTICE.md"
+            )
+            pickFirsts += listOf(
+                "META-INF/LICENSE.md",
+                "META-INF/LICENSE.txt"
+            )
+        }
+        jniLibs {
+            // Enable compressed JNI libraries in APK to maintain compact APK filesize
+            useLegacyPackaging = true
+        }
+    }
+
+    defaultConfig {
+        applicationId = "com.unshoo.pixelmusic"
+        minSdk = 30
+        targetSdk = 37
+        versionCode = (project.findProperty("APP_VERSION_CODE") as? String)?.toInt() ?: 830
+        versionName = (project.findProperty("APP_VERSION_NAME") as? String) ?: "1.0.0"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val telegramApiId = localProperties.getProperty("TELEGRAM_API_ID") ?: "21940754"
+        val telegramApiHash = localProperties.getProperty("TELEGRAM_API_HASH") ?: "044c35407641565eded551905de4b01c"
+        buildConfigField("int", "TELEGRAM_API_ID", telegramApiId.ifEmpty { "21940754" })
+        buildConfigField("String", "TELEGRAM_API_HASH", "\"${telegramApiHash.ifEmpty { "044c35407641565eded551905de4b01c" }}\"")
+
+        val lastfmApiKey = localProperties.getProperty("LASTFM_API_KEY")
+            ?: System.getenv("LASTFM_API_KEY")
+            ?: ""
+        val lastfmSecret = localProperties.getProperty("LASTFM_SECRET")
+            ?: System.getenv("LASTFM_SECRET")
+            ?: ""
+        buildConfigField("String", "LASTFM_API_KEY", "\"$lastfmApiKey\"")
+        buildConfigField("String", "LASTFM_SECRET", "\"$lastfmSecret\"")
+
+        val gitCommitHash = providers.exec {
+            commandLine("git", "rev-parse", "--short", "HEAD")
+            isIgnoreExitValue = true
+        }.standardOutput.asText.map { it.trim() }.getOrElse("")
+        buildConfigField("String", "GIT_COMMIT_HASH", "\"$gitCommitHash\"")
+
+        // ── ArchiveTune Source Pool (lossless streaming) ───────────────────────────
+        // SOURCE_PROVIDER_URL: base URL of the ArchivePool deployment (client appends
+        //   /api/accounts, /api/sources, /api/report, /api/discovery/{tidal,qobuz}).
+        // SOURCE_PROVIDER_KEY: the `atp_...` read key sent as `Authorization: Bearer`.
+        //   Can also be entered at runtime in Settings → Lossless Sources (runtime value wins).
+        // POOL_CLIENT_KEY: optional static 32-byte base64 AES key for legacy pool feeds; the
+        //   current feed derives the key from the read key (SHA-256("archivepool-client:" + key)).
+        val sourceProviderUrl =
+            (
+                localProperties.getProperty("SOURCE_PROVIDER_URL")?.takeIf { it.isNotBlank() }
+                    ?: System.getenv("SOURCE_PROVIDER_URL")?.takeIf { it.isNotBlank() }
+                    ?: "https://archivepool.vercel.app"
+                ).trim().trimEnd('/')
+        buildConfigField("String", "SOURCE_PROVIDER_URL", "\"$sourceProviderUrl\"")
+
+        val sourceProviderKey =
+            (
+                localProperties.getProperty("SOURCE_PROVIDER_KEY")
+                    ?: System.getenv("SOURCE_PROVIDER_KEY")
+                    ?: ""
+                ).trim()
+        buildConfigField("String", "SOURCE_PROVIDER_KEY", "\"$sourceProviderKey\"")
+
+        val poolClientKey =
+            (
+                localProperties.getProperty("POOL_CLIENT_KEY")
+                    ?: System.getenv("POOL_CLIENT_KEY")
+                    ?: ""
+                ).trim()
+        buildConfigField("String", "POOL_CLIENT_KEY", "\"$poolClientKey\"")
+    }
+
+    val keystoreExists = rootProject.file("keystore.properties").exists() && rootProject.file("vz-pixelmusic.jks").exists()
+
+    signingConfigs {
+        if (keystoreExists) {
+            create("release") {
+                storeFile = rootProject.file("vz-pixelmusic.jks")
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            manifestPlaceholders["adMobAppId"] = "ca-app-pub-3940256099942544~3347511713" // Standard Google Test App ID
+        }
+
+        release {
+            if (keystoreExists) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
+            }
+            isMinifyEnabled = true
+            isShrinkResources = true
+            // R8 Full Mode is enabled at the project level in
+            // gradle.properties (`android.enableR8.fullMode=true`) —
+            // the previous commented-out flag here left R8 in compat
+            // mode, which is significantly less aggressive and produces
+            // 15-25% larger dex plus slower cold starts. The existing
+            // proguard-rules.pro already covers the project-specific
+            // keep rules, so the full mode repackaging is safe.
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            manifestPlaceholders["adMobAppId"] = "ca-app-pub-6235250458880294~7929621161" // Production App ID
+        }
+
+        create("benchmark") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
+            manifestPlaceholders["adMobAppId"] = "ca-app-pub-6235250458880294~7929621161" // Production App ID
+        }
+    }
+
+    compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+        unitTests.all { it.useJUnitPlatform() }
+    }
+
+    lint {
+        // BUGFIX (was: checkReleaseBuilds = false): Lint on release builds
+        // catches the kind of bugs that ship into production and never
+        // get seen. The build will be slightly slower because of the
+        // extra checks, but on CI/laptop that's well worth it.
+        checkReleaseBuilds = true
+        // Treat errors as fatal but allow warnings. Tightening this to
+        // `warningsAsErrors = true` would also work, but historically
+        // this project has had Compose- and Material3-related lint
+        // warnings that don't affect runtime behaviour (e.g. missing
+        // translations, ordering of modifier calls). We surface the
+        // issues for the developer to see without breaking CI.
+        abortOnError = true
+    }
+
+    splits {
+        abi {
+            isEnable = enableAbiSplits
+            reset()
+            if (enableAbiSplits) {
+                if (onlyArm64) {
+                    include("arm64-v8a")
+                    isUniversalApk = false
+                } else {
+                    include("arm64-v8a", "armeabi-v7a", "x86_64")
+                    isUniversalApk = true
+                }
+            }
+        }
+    }
+
+    bundle {
+        abi.enableSplit = true
+        density.enableSplit = true
+        language.enableSplit = true
+    }
+}
+
+composeCompiler {
+    // StrongSkipping is now enabled by default.
+}
+
+baselineProfile {
+    // Keep release builds fast to invoke locally, but make generated profiles usable as
+    // startup dex-layout input once they are checked into the app.
+    automaticGenerationDuringBuild = false
+    saveInSrc = true
+    dexLayoutOptimization = true
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.incremental", "true")
+    arg("room.generateKotlin", "true")
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+
+        if (enableComposeCompilerReports) {
+            val buildDir = project.layout.buildDirectory.get().asFile.absolutePath
+            freeCompilerArgs.addAll(
+                "-P", "plugin:androidx.compose.compiler.plugins.kotlin:reportsDestination=$buildDir/compose_compiler_reports",
+                "-P", "plugin:androidx.compose.compiler.plugins.kotlin:metricsDestination=$buildDir/compose_compiler_metrics"
+            )
+        }
+
+        freeCompilerArgs.addAll(
+            "-P", "plugin:androidx.compose.compiler.plugins.kotlin:stabilityConfigurationPath=${project.rootDir.absolutePath}/app/compose_stability.conf"
+        )
+    }
+}
+
+dependencies {
+    // InnerTube dependencies merged
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.okhttp.dnsoverhttps)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.json)
+    implementation(libs.ktor.client.encoding)
+    implementation(libs.brotli)
+    implementation(libs.re2j)
+    implementation(libs.rhino)
+    // Core & Optimization
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+    implementation(libs.androidx.profileinstaller)
+    implementation(libs.androidx.metrics.performance) // JankStats for real frame-drop measurement
+    "baselineProfile"(project(":baselineprofile"))
+
+    // AndroidX & Compose
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.lifecycleprocess)
+    implementation(libs.androidx.activity.compose)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.material.icons.core)
+    implementation(libs.androidx.material.icons.extended)
+    implementation(libs.androidx.constraintlayout.compose)
+    implementation(libs.androidx.foundation)
+    implementation(libs.androidx.animation)
+    implementation(libs.androidx.palette.ktx)
+    implementation(libs.androidx.core.splashscreen)
+    implementation(libs.androidx.ui.text.google.fonts)
+    implementation(libs.material)
+    implementation(libs.androidx.appcompat)
+    implementation("androidx.webkit:webkit:1.16.0")
+    implementation("com.google.android.gms:play-services-ads:23.0.0")
+
+    // DI & Navigation
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.android.compiler)
+    implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.navigation.runtime.ktx)
+
+    // Storage & Paging
+    implementation(libs.androidx.room.runtime)
+    ksp(libs.androidx.room.compiler)
+    implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.room.paging)
+    implementation(libs.androidx.paging.runtime)
+    implementation(libs.androidx.paging.compose)
+    implementation(libs.androidx.paging.common)
+
+    // Media & Files
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.media3.session)
+    implementation(libs.androidx.media3.exoplayer.ffmpeg)
+    implementation(libs.androidx.media3.exoplayer.midi)
+    implementation(libs.androidx.media3.transformer)
+    implementation(libs.androidx.mediarouter)
+    implementation(libs.androidx.media)
+    implementation(libs.coil.compose)
+    implementation(libs.taglib)
+    implementation(libs.jaudiotagger)
+    implementation(libs.vorbisjava.core)
+    implementation(libs.wavy.slider)
+    implementation(libs.androidx.graphics.shapes)
+
+    // Networking & Serialization
+    implementation(libs.newpipe.extractor)
+    implementation(libs.fuel.android)
+    implementation(libs.fuel.json)
+    implementation(libs.androidx.media3.exoplayer.hls)
+    implementation(libs.retrofit)
+    implementation(libs.converter.gson)
+    implementation(libs.okhttp)
+    implementation(libs.logging.interceptor)
+    implementation(libs.gson)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.collections.immutable)
+    implementation(libs.ktor.server.core)
+    implementation(libs.ktor.server.cio)
+
+    // Identity & Background
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.play.services.wearable)
+    implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.credentials)
+    implementation(libs.credentials.play.services.auth)
+    implementation(libs.googleid)
+    implementation(libs.androidx.security.crypto)
+    implementation(libs.google.play.services.cast.framework)
+    implementation(libs.tdlib)
+
+    // UI Utilities & Performance
+    implementation("androidx.metrics:metrics-performance:1.0.0-beta01")
+
+    implementation(libs.timber)
+    // Gemini uses our lightweight REST client. Avoid the deprecated official SDK because
+    // it depends on Ktor 2.x and crashes when the app's Ktor 3.x stack is present.
+    // implementation(libs.generativeai)
+    implementation(libs.smooth.corner.rect.android.compose)
+    implementation(libs.reorderables)
+    implementation(libs.codeview)
+    implementation(libs.androidx.glance)
+    implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.glance.material3)
+    implementation(libs.pinyin4j.core)
+    implementation(libs.accompanist.drawablepainter)
+    implementation(libs.accompanist.permissions)
+    implementation(libs.capturable) {
+        exclude(group = "androidx.compose.animation")
+        exclude(group = "androidx.compose.foundation")
+        exclude(group = "androidx.compose.material")
+        exclude(group = "androidx.compose.runtime")
+        exclude(group = "androidx.compose.ui")
+    }
+
+    // Snapchat Creative Kit
+    implementation("com.snapchat.kit.sdk:creative:1.13.2")
+    implementation("com.snapchat.kit.sdk:core:1.13.2")
+
+
+
+
+
+    // Testing (Unit)
+    testImplementation(libs.junit.jupiter.api)
+    testImplementation(libs.junit.jupiter.params)
+    testRuntimeOnly(libs.junit.jupiter.engine)
+    // JUnit 4 (Vintage) — required for legacy JUnit 4 tests under useJUnitPlatform()
+    testImplementation(libs.junit)
+    testRuntimeOnly(libs.junit.vintage.engine)
+    testRuntimeOnly(libs.junitplatformlauncher)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockk)
+    testImplementation(libs.turbine)
+    testImplementation(libs.truth)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.junit)
+    testImplementation(libs.androidx.room.testing)
+    testImplementation(kotlin("test"))
+
+    // Testing (Instrumentation)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.truth)
+    androidTestImplementation(libs.mockk)
+    androidTestImplementation(libs.worktesting)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.ui.test.junit4)
+    androidTestImplementation(libs.androidx.benchmark.macro.junit4)
+    androidTestImplementation(libs.androidx.uiautomator)
+
+    // Debug
+    debugImplementation(platform(libs.androidx.compose.bom))
+    debugImplementation(libs.androidx.ui.tooling)
+    debugImplementation(libs.androidx.ui.test.manifest)
+
+    constraints {
+        // Fix vulnerabilities in transitive dependencies
+        implementation(libs.netty.common)
+        implementation(libs.netty.handler)
+        implementation(libs.netty.codec.http)
+        implementation(libs.netty.codec.http2)
+        implementation(libs.bouncycastle.bcprov)
+        implementation(libs.bouncycastle.bcpkix)
+        implementation(libs.commons.lang3)
+        implementation(libs.jdom2)
+        implementation(libs.jose4j)
+        implementation(libs.apache.httpclient)
+    }
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
+}
+
+configurations.all {
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-android-extensions-runtime")
+}

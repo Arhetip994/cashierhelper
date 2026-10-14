@@ -1,0 +1,719 @@
+package com.unshoo.pixelmusic.presentation.viewmodel
+
+import android.content.Context
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import coil.imageLoader
+import coil.request.ImageRequest
+import com.unshoo.pixelmusic.data.database.MusicDao
+import com.unshoo.pixelmusic.data.model.Playlist
+import com.unshoo.pixelmusic.data.model.Song
+import com.unshoo.pixelmusic.data.preferences.PlaylistPreferencesRepository
+import com.unshoo.pixelmusic.data.preferences.UserPreferencesRepository
+import com.unshoo.pixelmusic.data.remote.youtube.DatastoreRepository
+import com.unshoo.pixelmusic.data.remote.youtube.toNativeSong
+import com.unshoo.pixelmusic.data.stats.PlaybackStatsRepository
+import com.unshoo.pixelmusic.presentation.model.ExploreChipUiModel
+import com.unshoo.pixelmusic.presentation.model.ExploreItemUiModel
+import com.unshoo.pixelmusic.presentation.model.ExploreSectionUiModel
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectIndexed
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import timber.log.Timber
+import unshoo.ianshulyadav.pixelmusic.innertube.YouTube
+import unshoo.ianshulyadav.pixelmusic.innertube.models.AlbumItem
+import unshoo.ianshulyadav.pixelmusic.innertube.models.ArtistItem
+import unshoo.ianshulyadav.pixelmusic.innertube.models.PlaylistItem
+import unshoo.ianshulyadav.pixelmusic.innertube.models.SongItem
+import unshoo.ianshulyadav.pixelmusic.innertube.models.YTItem
+import unshoo.ianshulyadav.pixelmusic.innertube.pages.ChartsPage
+import unshoo.ianshulyadav.pixelmusic.innertube.pages.HomePage
+import com.unshoo.pixelmusic.data.database.toSong
+import com.unshoo.pixelmusic.data.feed.FeedArtist
+import com.unshoo.pixelmusic.data.feed.ImageDto
+import com.unshoo.pixelmusic.data.feed.RecentTrack
+import com.unshoo.pixelmusic.data.feed.RecentTrackArtistRef
+import javax.inject.Inject
+
+data class ExploreUiState(
+    val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
+    val isContinuationLoading: Boolean = false,
+    val isChartsLoading: Boolean = false,
+    val homePageSections: List<HomePage.Section> = emptyList(),
+    val homePageContinuation: String? = null,
+    val newReleaseAlbums: List<AlbumItem> = emptyList(),
+    val chartsPage: unshoo.ianshulyadav.pixelmusic.innertube.pages.ChartsPage? = null,
+    val error: String? = null,
+    val selectedFilter: String = "All",
+    val recentMixes: List<Playlist> = emptyList(),
+    val libraryPlaylists: List<Playlist> = emptyList(),
+    val moodChips: List<HomePage.Chip> = emptyList(),
+    val explorePageSections: List<HomePage.Section> = emptyList(),
+    val activeMoodChip: HomePage.Chip? = null,
+    val localSongs: Map<String, Song> = emptyMap(),
+    val localTopArtists: List<FeedArtist> = emptyList(),
+    val localHighlyRotatoryTracks: List<RecentTrack> = emptyList(),
+    val localRecentlyAddedSongs: List<Song> = emptyList(),
+    val isAdvancedExploreEnabled: Boolean = false,
+)
+
+@HiltViewModel
+class ExploreViewModel @Inject constructor(
+    private val playbackStatsRepository: PlaybackStatsRepository,
+    private val playlistPreferencesRepository: PlaylistPreferencesRepository,
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val musicDao: MusicDao,
+    private val listeningStatsTracker: ListeningStatsTracker,
+    private val datastoreRepository: DatastoreRepository,
+    private val connectivityStateHolder: ConnectivityStateHolder,
+    @ApplicationContext private val context: Context
+) : ViewModel() {
+
+    // --- Fine-grained decoupled StateFlows for high reactivity ---
+    private val _sectionsState = MutableStateFlow<List<ExploreSectionUiModel>>(emptyList())
+    val sectionsState: StateFlow<List<ExploreSectionUiModel>> = _sectionsState.asStateFlow()
+
+    private val _moodChipsState = MutableStateFlow<List<ExploreChipUiModel>>(emptyList())
+    val moodChipsState: StateFlow<List<ExploreChipUiModel>> = _moodChipsState.asStateFlow()
+
+    private val _activeChipState = MutableStateFlow<ExploreChipUiModel?>(null)
+    val activeChipState: StateFlow<ExploreChipUiModel?> = _activeChipState.asStateFlow()
+
+    private val _isLoadingState = MutableStateFlow(true)
+    val isLoadingState: StateFlow<Boolean> = _isLoadingState.asStateFlow()
+
+    private val _isRefreshingState = MutableStateFlow(false)
+    val isRefreshingState: StateFlow<Boolean> = _isRefreshingState.asStateFlow()
+
+    private val _errorState = MutableStateFlow<String?>(null)
+    val errorState: StateFlow<String?> = _errorState.asStateFlow()
+
+    // Backward-compatible monolithic state
+    private val _uiState = MutableStateFlow(ExploreUiState())
+    val uiState: StateFlow<ExploreUiState> = _uiState.asStateFlow()
+
+    private var stage2Job: Job? = null
+    @Volatile
+    private var hasFetchedFromNetwork = false
+
+    private val gson by lazy {
+        com.google.gson.GsonBuilder()
+            .registerTypeAdapter(YTItem::class.java, YTItemTypeAdapter())
+            .create()
+    }
+
+    private val cacheFile by lazy {
+        java.io.File(context.cacheDir, "explore_cache.json")
+    }
+
+    init {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                restoreFromCache()
+            }
+            if (_sectionsState.value.isEmpty()) {
+                loadDataInternal(forceRefresh = false)
+            }
+        }
+        viewModelScope.launch {
+            playlistPreferencesRepository.userPlaylistsFlow.collect { playlists ->
+                val mixes = playlists.filter {
+                    (it.source == "LASTFM_MIX" || it.source == "AI" || it.isAiGenerated) &&
+                            it.songIds.isNotEmpty() &&
+                            !it.name.contains("deleted", ignoreCase = true)
+                }.sortedByDescending { it.lastModified }
+                val libPlaylists = playlists.filter { !it.isQueueGenerated && it.id != "_downloaded_" && it.source != "LASTFM_MIX" && it.source != "AI" && !it.isAiGenerated }
+                    .sortedByDescending { it.lastModified }
+                _uiState.update { it.copy(recentMixes = mixes, libraryPlaylists = libPlaylists) }
+            }
+        }
+        viewModelScope.launch {
+            userPreferencesRepository.advancedExplorePageFlow
+                .distinctUntilChanged()
+                .collectIndexed { index, enabled ->
+                    _uiState.update { it.copy(isAdvancedExploreEnabled = enabled) }
+                    if (index > 0) {
+                        loadData(forceRefresh = true)
+                    }
+                }
+        }
+        viewModelScope.launch {
+            YouTube.personalizedExploreEnabled = runCatching {
+                userPreferencesRepository.youtubePersonalizedExploreFlow.first()
+            }.getOrDefault(false)
+
+            userPreferencesRepository.youtubePersonalizedExploreFlow
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { enabled ->
+                    YouTube.personalizedExploreEnabled = enabled
+                    if (cacheFile.exists()) {
+                        cacheFile.delete()
+                    }
+                    loadData(forceRefresh = true)
+                }
+        }
+        viewModelScope.launch {
+            userPreferencesRepository.youtubePersonalizedQueueFlow
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    YouTube.personalizedQueueEnabled = enabled
+                }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val downloadedSongs: List<Song> = runCatching {
+                    com.unshoo.pixelmusic.data.database.youtube.AppDatabase.getInstance(context)
+                        .songRepository().getDownloadedSongs().map { it.toNativeSong() }
+                }.getOrDefault(emptyList())
+
+                musicDao.getHomeMixPreviewSongs(
+                    limit = 30,
+                    allowedParentDirs = emptyList(),
+                    applyDirectoryFilter = false
+                ).collect { localEntities ->
+                    val localSongsList = localEntities.map { it.toSong() }
+                    val combinedRecent = (downloadedSongs + localSongsList)
+                        .distinctBy { it.id }
+                        .sortedByDescending { it.dateAdded }
+                        .take(20)
+
+                    val localMap = combinedRecent.associateBy { it.id }
+
+                    _uiState.update { current ->
+                        current.copy(
+                            localRecentlyAddedSongs = combinedRecent,
+                            localSongs = current.localSongs + localMap
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to observe recently added songs")
+            }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val history = playbackStatsRepository.loadPlaybackHistory(limit = 60)
+                if (history.isNotEmpty()) {
+                    val rotatoryFrequency = history.groupingBy { it.songId }.eachCount()
+                    val highlyRotatoryEntries = history
+                        .distinctBy { it.songId }
+                        .sortedByDescending { rotatoryFrequency[it.songId] ?: 1 }
+                        .take(15)
+
+                    val rotatoryTracks = highlyRotatoryEntries.map { entry ->
+                        RecentTrack(
+                            name = entry.title ?: "Unknown",
+                            artist = RecentTrackArtistRef(name = entry.artist ?: "Unknown artist"),
+                            album = RecentTrackArtistRef(name = ""),
+                            image = entry.thumbnail?.let { listOf(ImageDto(it, "extralarge")) }.orEmpty(),
+                            url = entry.songId
+                        )
+                    }
+
+                    val artistFrequency = history
+                        .mapNotNull { it.artist?.takeIf(String::isNotBlank) }
+                        .map { it.replace(Regex("""(?i)\s*-\s*topic$"""), "").trim() }
+                        .filter {
+                            val lower = it.lowercase(java.util.Locale.ROOT)
+                            lower !in setOf("unknown", "unknown artist", "<unknown>", "various artists", "various")
+                        }
+                        .groupingBy { it.lowercase(java.util.Locale.ROOT) }
+                        .eachCount()
+                        .entries
+                        .sortedByDescending { it.value }
+                        .take(10)
+
+                    val topLocalArtists = artistFrequency.map { entry ->
+                        val matchingEntry = history.firstOrNull {
+                            it.artist?.replace(Regex("""(?i)\s*-\s*topic$"""), "")?.trim()?.equals(entry.key, ignoreCase = true) == true
+                        }
+                        val displayName = matchingEntry?.artist?.replace(Regex("""(?i)\s*-\s*topic$"""), "")?.trim()
+                            ?: entry.key.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.ROOT) else it.toString() }
+                        FeedArtist(
+                            name = displayName,
+                            browseId = null,
+                            artworkUrl = matchingEntry?.thumbnail
+                        )
+                    }
+
+                    _uiState.update { current ->
+                        current.copy(
+                            localHighlyRotatoryTracks = rotatoryTracks,
+                            localTopArtists = topLocalArtists
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to load local rotatory history and top artists")
+            }
+        }
+    }
+
+    private suspend fun restoreFromCache() {
+        try {
+            if (cacheFile.exists()) {
+                if (!connectivityStateHolder.isOnline.value) {
+                    loadOfflineExploreData()
+                    return
+                }
+                if (System.currentTimeMillis() - cacheFile.lastModified() > 24 * 60 * 60 * 1000L) {
+                    cacheFile.delete()
+                    return
+                }
+                val json = cacheFile.readText()
+                val cache = gson.fromJson(json, ExploreCacheModel::class.java)
+                if (cache != null && cache.sections.isNotEmpty()) {
+                    val age = System.currentTimeMillis() - cache.timestamp
+                    if (age < 12 * 60 * 60 * 1000L) {
+                        val uiSections = cache.sections.map { it.toUiModel() }
+                        _sectionsState.value = uiSections
+                        _uiState.update {
+                            it.copy(
+                                isLoading = true,
+                                homePageSections = cache.sections
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to restore explore data from cache")
+            try { cacheFile.delete() } catch (_: Exception) {}
+        }
+    }
+
+    private fun persistToCache(sections: List<HomePage.Section>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val cache = ExploreCacheModel(
+                    sections = sections.take(20),
+                    albums = emptyList(),
+                    charts = null,
+                    continuation = null,
+                    timestamp = System.currentTimeMillis()
+                )
+                val json = gson.toJson(cache)
+                if (json.length < 400 * 1024) {
+                    cacheFile.writeText(json)
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to persist explore data to cache")
+            }
+        }
+    }
+
+    fun loadData(forceRefresh: Boolean = false) {
+        viewModelScope.launch {
+            loadDataInternal(forceRefresh)
+        }
+    }
+
+    private suspend fun loadDataInternal(forceRefresh: Boolean) {
+        if (!connectivityStateHolder.isOnline.value) {
+            loadOfflineExploreData()
+            return
+        }
+        if (!forceRefresh && hasFetchedFromNetwork && _sectionsState.value.isNotEmpty()) {
+            return
+        }
+        stage2Job?.cancel()
+
+        if (forceRefresh) {
+            _isRefreshingState.value = true
+            _errorState.value = null
+            _uiState.update { it.copy(isRefreshing = true, error = null) }
+        } else {
+            val hasData = _sectionsState.value.isNotEmpty()
+            _isLoadingState.value = !hasData
+            _errorState.value = null
+            _uiState.update { it.copy(isLoading = !hasData, error = null) }
+        }
+
+        try {
+            val isAdvancedExploreEnabled = userPreferencesRepository.advancedExplorePageFlow.first()
+            _uiState.update { it.copy(isAdvancedExploreEnabled = isAdvancedExploreEnabled) }
+
+            // Stage 1: Fast initial fetch for YouTube Home (single-call)
+            val initialHome = withContext(Dispatchers.IO) {
+                runCatching { YouTube.home().getOrNull() }.getOrNull()
+            }
+
+            if (initialHome != null) {
+                val combinedSections = ArrayList<HomePage.Section>()
+                combinedSections.addAll(initialHome.sections)
+                var currentContinuation = initialHome.continuation
+                var continuationCount = 0
+
+                // Only eagerly fetch continuation batches if advanced explore page is enabled
+                while (isAdvancedExploreEnabled && !currentContinuation.isNullOrBlank() && continuationCount < 2) {
+                    continuationCount++
+                    val continuationBatch = withContext(Dispatchers.IO) {
+                        runCatching { YouTube.home(continuation = currentContinuation).getOrNull() }.getOrNull()
+                    }
+                    if (continuationBatch != null && continuationBatch.sections.isNotEmpty()) {
+                        combinedSections.addAll(continuationBatch.sections)
+                        currentContinuation = continuationBatch.continuation
+                    } else {
+                        break
+                    }
+                }
+
+                val cookies = runCatching { datastoreRepository.cookies.first() }.getOrNull()
+                val isYtConnected = cookies?.toRawCookie()?.let {
+                    it.contains("SAPISID=") || it.contains("__Secure-3PAPISID=")
+                } == true
+
+                // Filter out undesirable sections in a single pass
+                val rawSections = combinedSections.filter { section ->
+                    val title = section.title.lowercase()
+                    !title.contains("new music videos") &&
+                    !title.contains("trending") &&
+                    !title.contains("long listens") &&
+                    !title.contains("local") &&
+                    !title.contains("quick picks") &&
+                    !title.contains("quickpicks") &&
+                    section.items.isNotEmpty()
+                }.distinctBy { it.title }
+
+                // Extract personalized new releases directly from user's YouTube Home feed (zero extra network calls)
+                val personalizedNewReleases = rawSections.filter { section ->
+                    val t = section.title.lowercase()
+                    !t.contains("video") && !t.contains("videos") && (
+                        t.contains("new release") || t.contains("new releases") ||
+                        t.contains("new album") || t.contains("latest release") ||
+                        t.contains("new music") || t.contains("recent release") ||
+                        t.contains("novedades") || t.contains("nouveautés") ||
+                        t.contains("veröffentlichungen") || t.contains("release radar") ||
+                        t.contains("new for you")
+                    )
+                }.flatMap { it.items }.mapNotNull { item ->
+                    when (item) {
+                        is AlbumItem -> item
+                        is PlaylistItem -> AlbumItem(
+                            browseId = item.id,
+                            playlistId = item.id,
+                            title = item.title,
+                            artists = listOfNotNull(item.author),
+                            year = null,
+                            thumbnail = item.thumbnail ?: "",
+                            explicit = false
+                        )
+                        else -> null
+                    }
+                }.distinctBy { it.browseId }
+
+                // Progressive streaming: map to domain UI models once
+                val uiSections = rawSections.map { it.toUiModel() }
+                val rawChips = initialHome.chips ?: emptyList()
+                val uiChips = rawChips.map { ExploreChipUiModel(it.title, it.endpoint?.browseId, it.endpoint?.params) }
+
+                _sectionsState.value = uiSections
+                _moodChipsState.value = uiChips
+                _isLoadingState.value = false
+                _isRefreshingState.value = false
+
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        isContinuationLoading = false,
+                        homePageSections = rawSections,
+                        homePageContinuation = currentContinuation,
+                        newReleaseAlbums = personalizedNewReleases,
+                        moodChips = rawChips,
+                        isAdvancedExploreEnabled = isAdvancedExploreEnabled
+                    )
+                }
+
+                prefetchThumbnails(rawSections)
+                persistToCache(rawSections)
+                hasFetchedFromNetwork = true
+            } else if (_sectionsState.value.isEmpty()) {
+                val msg = "Failed to fetch explore data. Check connection."
+                _errorState.value = msg
+                _isLoadingState.value = false
+                _isRefreshingState.value = false
+                _uiState.update { it.copy(isLoading = false, isRefreshing = false, error = msg) }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error loading Explore screen data")
+            val msg = e.localizedMessage ?: "Unknown error occurred"
+            _errorState.value = msg
+            _isLoadingState.value = false
+            _isRefreshingState.value = false
+            _uiState.update { it.copy(isLoading = false, isRefreshing = false, error = msg) }
+        }
+    }
+
+    private fun prefetchThumbnails(sections: List<HomePage.Section>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(500) // Defer prefetching until after initial UI layout render
+            val loader = context.imageLoader
+            sections.flatMap { it.items }.take(4).forEach { item ->
+                val url = when (item) {
+                    is SongItem -> item.thumbnail
+                    is AlbumItem -> item.thumbnail
+                    is PlaylistItem -> item.thumbnail
+                    is ArtistItem -> item.thumbnail
+                    else -> null
+                }
+                if (!url.isNullOrBlank()) {
+                    val req = ImageRequest.Builder(context)
+                        .data(url)
+                        .size(64)
+                        .build()
+                    loader.enqueue(req)
+                }
+            }
+        }
+    }
+
+    fun loadChartsIfNeeded(forceRefresh: Boolean = false) {
+        if (!forceRefresh && (_uiState.value.chartsPage != null || _uiState.value.isChartsLoading)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(isChartsLoading = true) }
+            val charts = runCatching { YouTube.getChartsPage().getOrNull() }.getOrNull()
+            _uiState.update { it.copy(isChartsLoading = false, chartsPage = charts) }
+        }
+    }
+
+    fun loadMore() {
+        val continuation = _uiState.value.homePageContinuation ?: return
+        if (_uiState.value.isContinuationLoading || _uiState.value.isLoading || _uiState.value.isRefreshing) return
+        if (!_uiState.value.isAdvancedExploreEnabled) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isContinuationLoading = true) }
+            val continuationHome = withContext(Dispatchers.IO) {
+                runCatching { YouTube.home(continuation = continuation).getOrNull() }.getOrNull()
+            }
+
+            if (continuationHome != null && continuationHome.sections.isNotEmpty()) {
+                val newRawSections = continuationHome.sections.filter { section ->
+                    val title = section.title.lowercase()
+                    !title.contains("new music videos") &&
+                    !title.contains("trending") &&
+                    !title.contains("long listens") &&
+                    !title.contains("local") &&
+                    !title.contains("quick picks") &&
+                    !title.contains("quickpicks") &&
+                    section.items.isNotEmpty()
+                }
+
+                val currentRaw = _uiState.value.homePageSections
+                val mergedRaw = (currentRaw + newRawSections).distinctBy { it.title }
+                val uiSections = mergedRaw.map { it.toUiModel() }
+
+                _sectionsState.value = uiSections
+                _uiState.update {
+                    it.copy(
+                        isContinuationLoading = false,
+                        homePageSections = mergedRaw,
+                        homePageContinuation = continuationHome.continuation
+                    )
+                }
+                persistToCache(mergedRaw)
+            } else {
+                _uiState.update { it.copy(isContinuationLoading = false, homePageContinuation = null) }
+            }
+        }
+    }
+
+    fun setSelectedFilter(filter: String) {
+        _uiState.update { it.copy(selectedFilter = filter, activeMoodChip = null) }
+        _activeChipState.value = null
+        if (filter == "All") {
+            loadData(forceRefresh = false)
+        }
+    }
+
+    fun selectMoodChip(chip: HomePage.Chip?) {
+        viewModelScope.launch {
+            _activeChipState.value = chip?.let { ExploreChipUiModel(it.title, it.endpoint?.browseId, it.endpoint?.params) }
+            _uiState.update { it.copy(activeMoodChip = chip, isLoading = true, error = null) }
+            _isLoadingState.value = true
+
+            if (chip == null) {
+                loadDataInternal(false)
+            } else {
+                withContext(Dispatchers.IO) {
+                    val endpoint = chip.endpoint
+                    if (endpoint != null) {
+                        YouTube.explore(browseId = endpoint.browseId, params = endpoint.params).onSuccess { exp ->
+                            val rawSections = exp.sections
+                            val uiSections = rawSections.map { it.toUiModel() }
+                            _sectionsState.value = uiSections
+                            _isLoadingState.value = false
+
+                            _uiState.update {
+                                it.copy(
+                                    isLoading = false,
+                                    explorePageSections = rawSections
+                                )
+                            }
+                            prefetchThumbnails(rawSections)
+                        }.onFailure { e ->
+                            val msg = "Failed to fetch mood feed: ${e.message}"
+                            _errorState.value = msg
+                            _isLoadingState.value = false
+                            _uiState.update {
+                                it.copy(
+                                    isLoading = false,
+                                    error = msg
+                                )
+                            }
+                        }
+                    } else {
+                        _isLoadingState.value = false
+                        _uiState.update { it.copy(isLoading = false) }
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun loadOfflineExploreData() = withContext(Dispatchers.IO) {
+        _isLoadingState.value = false
+        _isRefreshingState.value = false
+        _errorState.value = null
+
+        val downloadedSongs = runCatching {
+            com.unshoo.pixelmusic.data.database.youtube.AppDatabase.getInstance(context)
+                .songRepository().getDownloadedSongs().map { it.toNativeSong() }
+        }.getOrDefault(emptyList()).filter {
+            com.unshoo.pixelmusic.utils.OfflineAudioResolver.hasOfflineAudio(context, it)
+        }
+
+        val localEntities = musicDao.getSongsBySourceType(0) // SourceType.LOCAL
+        val localSongs = localEntities.map { it.toSong() }.filter {
+            com.unshoo.pixelmusic.utils.OfflineAudioResolver.hasOfflineAudio(context, it)
+        }
+
+        val allOfflineSongs = com.unshoo.pixelmusic.utils.OfflineAudioResolver.deduplicateQueue(downloadedSongs + localSongs).first
+        val localMap = allOfflineSongs.associateBy { it.id }
+
+        val offlineSongItems = allOfflineSongs.take(30).map { song ->
+            SongItem(
+                id = song.id,
+                title = song.title,
+                artists = listOf(unshoo.ianshulyadav.pixelmusic.innertube.models.Artist(name = song.artist, id = null)),
+                album = song.album.takeIf { it.isNotBlank() }?.let { unshoo.ianshulyadav.pixelmusic.innertube.models.Album(name = it, id = null) },
+                duration = (song.duration / 1000).toInt(),
+                thumbnail = song.albumArtUriString.orEmpty(),
+                explicit = false,
+                endpoint = null
+            )
+        }
+
+        val offlineSection = if (offlineSongItems.isNotEmpty()) {
+            HomePage.Section(
+                title = "Offline Tracks",
+                label = "Downloaded & Local Music",
+                thumbnail = null,
+                endpoint = null,
+                items = offlineSongItems
+            )
+        } else null
+
+        val rawSections = listOfNotNull(offlineSection)
+        val uiSections = rawSections.map { it.toUiModel() }
+
+        _sectionsState.value = uiSections
+        _moodChipsState.value = emptyList()
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                isRefreshing = false,
+                homePageSections = rawSections,
+                explorePageSections = emptyList(),
+                newReleaseAlbums = emptyList(),
+                moodChips = emptyList(),
+                localSongs = localMap,
+                localRecentlyAddedSongs = allOfflineSongs.take(20)
+            )
+        }
+    }
+
+    private fun HomePage.Section.toUiModel(): ExploreSectionUiModel {
+        val uiItems = items.mapNotNull { item ->
+            when (item) {
+                is SongItem -> ExploreItemUiModel.SongModel(item.toNativeSong(), item)
+                is AlbumItem -> ExploreItemUiModel.AlbumModel(item)
+                is PlaylistItem -> ExploreItemUiModel.PlaylistModel(item)
+                is ArtistItem -> ExploreItemUiModel.ArtistModel(item)
+                else -> null
+            }
+        }
+        return ExploreSectionUiModel(
+            id = title,
+            title = title,
+            label = label,
+            items = uiItems
+        )
+    }
+}
+
+@androidx.annotation.Keep
+data class ExploreCacheModel(
+    val sections: List<HomePage.Section>,
+    val albums: List<AlbumItem>,
+    val charts: ChartsPage?,
+    val continuation: String?,
+    val timestamp: Long
+)
+
+private class YTItemTypeAdapter : com.google.gson.JsonSerializer<YTItem>, com.google.gson.JsonDeserializer<YTItem> {
+    override fun serialize(src: YTItem, typeOfSrc: java.lang.reflect.Type, context: com.google.gson.JsonSerializationContext): com.google.gson.JsonElement {
+        val obj = com.google.gson.JsonObject()
+        when (src) {
+            is SongItem -> {
+                obj.addProperty("type", "song")
+                obj.add("data", context.serialize(src, SongItem::class.java))
+            }
+            is AlbumItem -> {
+                obj.addProperty("type", "album")
+                obj.add("data", context.serialize(src, AlbumItem::class.java))
+            }
+            is PlaylistItem -> {
+                obj.addProperty("type", "playlist")
+                obj.add("data", context.serialize(src, PlaylistItem::class.java))
+            }
+            is ArtistItem -> {
+                obj.addProperty("type", "artist")
+                obj.add("data", context.serialize(src, ArtistItem::class.java))
+            }
+        }
+        return obj
+    }
+
+    override fun deserialize(json: com.google.gson.JsonElement, typeOfT: java.lang.reflect.Type, context: com.google.gson.JsonDeserializationContext): YTItem? {
+        return try {
+            val obj = json.asJsonObject
+            val type = obj.get("type")?.asString ?: return null
+            val targetClass = when (type) {
+                "song", "SongItem" -> SongItem::class.java
+                "album", "AlbumItem" -> AlbumItem::class.java
+                "playlist", "PlaylistItem" -> PlaylistItem::class.java
+                "artist", "ArtistItem" -> ArtistItem::class.java
+                else -> null
+            } ?: return null
+            val data = obj.get("data") ?: obj
+            context.deserialize(data, targetClass)
+        } catch (_: Exception) {
+            null
+        }
+    }
+}

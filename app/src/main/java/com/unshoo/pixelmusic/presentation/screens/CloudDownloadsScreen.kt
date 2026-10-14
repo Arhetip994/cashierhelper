@@ -1,0 +1,993 @@
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+    androidx.media3.common.util.UnstableApi::class
+)
+package com.unshoo.pixelmusic.presentation.screens
+
+import android.app.Activity
+import android.text.format.Formatter
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.material.icons.rounded.AllInclusive
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CloudDownload
+import com.unshoo.pixelmusic.presentation.viewmodel.DownloadFilterMode
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Deselect
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.SelectAll
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
+import com.unshoo.pixelmusic.ui.theme.PixelMusicStatusBarStyle
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.util.UnstableApi
+import androidx.navigation.NavController
+import com.unshoo.pixelmusic.R
+import com.unshoo.pixelmusic.data.offline.OfflineDownload
+import com.unshoo.pixelmusic.data.offline.OfflineDownloadStatus
+import com.unshoo.pixelmusic.presentation.components.MiniPlayerHeight
+import com.unshoo.pixelmusic.presentation.components.SongInfoBottomSheet
+import com.unshoo.pixelmusic.presentation.components.resolveNavBarOccupiedHeight
+import com.unshoo.pixelmusic.presentation.components.subcomps.EnhancedSongListItem
+import com.unshoo.pixelmusic.presentation.viewmodel.ActiveDownloadDisplayItem
+import com.unshoo.pixelmusic.presentation.viewmodel.CloudDownloadsUiState
+import com.unshoo.pixelmusic.presentation.viewmodel.CloudDownloadsViewModel
+import com.unshoo.pixelmusic.presentation.viewmodel.PlayerViewModel
+
+@Composable
+fun CloudDownloadsScreen(
+    navController: NavController,
+    playerViewModel: PlayerViewModel,
+    viewModel: CloudDownloadsViewModel = hiltViewModel()
+) {
+    val context = LocalContext.current
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val favoriteSongIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
+    val selectedSongForInfo by playerViewModel.selectedSongForInfo.collectAsStateWithLifecycle()
+
+    var showSongInfoBottomSheet by remember { mutableStateOf(false) }
+    val lazyListState = rememberLazyListState()
+
+    val completedSongs = remember(uiState.completedDownloads) {
+        uiState.completedDownloads.map { it.song }
+    }
+
+    val systemNavBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val navBarCompactMode by playerViewModel.navBarCompactMode.collectAsStateWithLifecycle()
+    val bottomBarHeightDp = resolveNavBarOccupiedHeight(systemNavBarInset, navBarCompactMode)
+
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+
+    PixelMusicStatusBarStyle(
+        color = if (uiState.isSelectionMode) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surface
+    )
+
+    Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            TopDownloadsBar(
+                isSelectionMode = uiState.isSelectionMode,
+                selectedCount = uiState.selectedSongIds.size,
+                allSelected = uiState.selectedSongIds.size == uiState.completedDownloads.size && uiState.completedDownloads.isNotEmpty(),
+                hasCompleted = uiState.completedDownloads.isNotEmpty(),
+                onBack = { navController.popBackStack() },
+                onToggleSelectAll = {
+                    if (uiState.selectedSongIds.size == uiState.completedDownloads.size) {
+                        viewModel.clearSelection()
+                    } else {
+                        viewModel.selectAll()
+                    }
+                },
+                onDeleteSelected = {
+                    viewModel.deleteSelected()
+                },
+                onPlaySelected = {
+                    val selectedItems = uiState.completedDownloads.filter { it.song.id in uiState.selectedSongIds }
+                    if (selectedItems.isNotEmpty()) {
+                        val songs = selectedItems.map { it.song }
+                        playerViewModel.playSongs(songs, songs.first(), "Downloads")
+                    }
+                },
+                onCloseSelection = {
+                    viewModel.clearSelection()
+                },
+                scrollBehavior = scrollBehavior
+            )
+        },
+        containerColor = MaterialTheme.colorScheme.surface
+    ) { innerPadding ->
+        if (uiState.isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(36.dp),
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        } else {
+            LazyColumn(
+                state = lazyListState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    top = innerPadding.calculateTopPadding() + 8.dp,
+                    bottom = bottomBarHeightDp + (if (stablePlayerState.currentSong != null) MiniPlayerHeight else 0.dp) + 32.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Storage summary card
+                item(key = "storage_summary_card") {
+                    StorageSummaryCard(
+                        uiState = uiState,
+                        onPlayAll = {
+                            if (completedSongs.isNotEmpty()) {
+                                playerViewModel.playSongs(completedSongs, completedSongs.first(), "Downloads")
+                            }
+                        },
+                        onShuffleAll = {
+                            if (completedSongs.isNotEmpty()) {
+                                playerViewModel.playSongsShuffled(
+                                    songsToPlay = completedSongs,
+                                    queueName = "Downloads",
+                                    startAtZero = true
+                                )
+                            }
+                        },
+                        onTogglePause = { viewModel.togglePauseDownloads() },
+                        onCancelAll = { viewModel.cancelAllActiveDownloads() },
+                        onToggleFilterMode = { viewModel.toggleFilterMode() },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
+
+                // Active downloads section
+                if (uiState.activeDownloads.isNotEmpty()) {
+                    item(key = "active_downloads_header") {
+                        SectionHeader(
+                            title = stringResource(
+                                R.string.cloud_downloads_section_count,
+                                stringResource(R.string.cloud_downloads_active_section),
+                                uiState.activeDownloads.size
+                            ),
+                            modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp)
+                        )
+                    }
+
+                    items(
+                        items = uiState.activeDownloads,
+                        key = { "active_${it.id}" }
+                    ) { download ->
+                        ActiveDownloadCard(
+                            download = download,
+                            onCancel = { viewModel.cancelActiveDownload(download) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+
+                // Failed downloads section
+                if (uiState.failedDownloads.isNotEmpty()) {
+                    item(key = "failed_downloads_header") {
+                        SectionHeader(
+                            title = stringResource(
+                                R.string.cloud_downloads_section_count,
+                                stringResource(R.string.cloud_downloads_failed_section),
+                                uiState.failedDownloads.size
+                            ),
+                            modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp)
+                        )
+                    }
+
+                    items(
+                        items = uiState.failedDownloads,
+                        key = { "failed_${it.downloadId}" }
+                    ) { download ->
+                        FailedDownloadCard(
+                            download = download,
+                            onRetry = { viewModel.retryDownload(download.sourceUri) },
+                            onDismiss = { viewModel.removeDownload(download.sourceUri) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+
+                // Completed downloads section
+                if (uiState.completedDownloads.isNotEmpty()) {
+                    item(key = "completed_downloads_header") {
+                        SectionHeader(
+                            title = stringResource(
+                                R.string.cloud_downloads_section_count,
+                                stringResource(R.string.cloud_downloads_completed_section),
+                                uiState.completedDownloads.size
+                            ),
+                            modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp)
+                        )
+                    }
+
+                    items(
+                        items = uiState.completedDownloads,
+                        key = { "completed_${it.song.id}" }
+                    ) { item ->
+                        val isSelected = item.song.id in uiState.selectedSongIds
+
+                        LibraryPlaybackAwareSongItem(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            song = item.song,
+                            playerViewModel = playerViewModel,
+                            isSelected = isSelected,
+                            isSelectionMode = uiState.isSelectionMode,
+                            onClick = {
+                                if (uiState.isSelectionMode) {
+                                    viewModel.toggleSelection(item.song.id)
+                                } else {
+                                    playerViewModel.playSongs(
+                                        songsToPlay = completedSongs,
+                                        startSong = item.song,
+                                        queueName = "Downloads"
+                                    )
+                                }
+                            },
+                            onLongPress = {
+                                viewModel.toggleSelection(item.song.id)
+                            },
+                            onMoreOptionsClick = { song ->
+                                playerViewModel.selectSongForInfo(song)
+                                showSongInfoBottomSheet = true
+                            }
+                        )
+                    }
+                }
+
+                // Empty state
+                if (uiState.totalCount == 0 && uiState.activeDownloads.isEmpty() && uiState.completedDownloads.isEmpty()) {
+                    item(key = "empty_downloads_state") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 80.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    shape = CircleShape,
+                                    modifier = Modifier.size(72.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.CloudDownload,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(36.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = stringResource(R.string.cloud_downloads_empty_title),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = stringResource(R.string.cloud_downloads_empty_subtitle),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+        // Song info bottom sheet
+        if (showSongInfoBottomSheet && selectedSongForInfo != null) {
+            val currentSong = selectedSongForInfo!!
+            SongInfoBottomSheet(
+                song = currentSong,
+                playerViewModel = playerViewModel,
+                isFavorite = favoriteSongIds.contains(currentSong.id),
+                onToggleFavorite = {
+                    playerViewModel.toggleFavoriteSpecificSong(currentSong)
+                },
+                onDismiss = { showSongInfoBottomSheet = false },
+                onPlaySong = {
+                    playerViewModel.showAndPlaySong(currentSong)
+                    showSongInfoBottomSheet = false
+                },
+                onAddToQueue = {
+                    playerViewModel.addSongToQueue(currentSong)
+                    showSongInfoBottomSheet = false
+                },
+                onAddNextToQueue = {
+                    playerViewModel.addSongNextToQueue(currentSong)
+                    showSongInfoBottomSheet = false
+                },
+                onAddToPlayList = {
+                    showSongInfoBottomSheet = false
+                },
+                onDeleteFromDevice = { activity, song, onResult ->
+                    viewModel.deleteSong(song)
+                    onResult(true)
+                },
+                onNavigateToAlbum = {},
+                onNavigateToArtist = {},
+                onEditSong = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
+                generateAiMetadata = { Result.failure(UnsupportedOperationException()) },
+                removeFromListTrigger = {
+                    viewModel.deleteSong(currentSong)
+                }
+            )
+        }
+}
+
+@Composable
+private fun TopDownloadsBar(
+    isSelectionMode: Boolean,
+    selectedCount: Int,
+    allSelected: Boolean,
+    hasCompleted: Boolean,
+    onBack: () -> Unit,
+    onToggleSelectAll: () -> Unit,
+    onDeleteSelected: () -> Unit,
+    onPlaySelected: () -> Unit,
+    onCloseSelection: () -> Unit,
+    scrollBehavior: TopAppBarScrollBehavior,
+    modifier: Modifier = Modifier
+) {
+    TopAppBar(
+        modifier = modifier,
+        title = {
+            AnimatedContent(
+                targetState = isSelectionMode,
+                label = "TopDownloadsBarTitle"
+            ) { inSelection ->
+                if (inSelection) {
+                    Text(
+                        text = "$selectedCount selected",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.cloud_downloads_title),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        },
+        navigationIcon = {
+            AnimatedContent(
+                targetState = isSelectionMode,
+                label = "TopDownloadsBarNav"
+            ) { inSelection ->
+                if (inSelection) {
+                    FilledIconButton(
+                        onClick = onCloseSelection,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        modifier = Modifier
+                            .padding(start = 6.dp)
+                            .size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = stringResource(R.string.cancel)
+                        )
+                    }
+                } else {
+                    FilledIconButton(
+                        onClick = onBack,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        modifier = Modifier
+                            .padding(start = 6.dp)
+                            .size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = stringResource(R.string.auth_cd_back)
+                        )
+                    }
+                }
+            }
+        },
+        actions = {
+            if (isSelectionMode) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onPlaySelected) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow,
+                            contentDescription = stringResource(R.string.cloud_download_play_selected),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    IconButton(onClick = onToggleSelectAll) {
+                        Icon(
+                            imageVector = if (allSelected) Icons.Rounded.Deselect else Icons.Rounded.SelectAll,
+                            contentDescription = stringResource(
+                                if (allSelected) R.string.cloud_download_deselect_all else R.string.cloud_download_select_all
+                            ),
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    IconButton(onClick = onDeleteSelected) {
+                        Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = stringResource(R.string.cloud_download_delete_selected),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            } else if (hasCompleted) {
+                TextButton(
+                    onClick = onToggleSelectAll,
+                    modifier = Modifier.padding(end = 6.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.cloud_download_select_all),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = if (isSelectionMode) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surface,
+            scrolledContainerColor = if (isSelectionMode) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer
+        ),
+        scrollBehavior = scrollBehavior
+    )
+}
+
+@Composable
+private fun StorageSummaryCard(
+    uiState: CloudDownloadsUiState,
+    onPlayAll: () -> Unit,
+    onShuffleAll: () -> Unit,
+    onTogglePause: () -> Unit,
+    onCancelAll: () -> Unit,
+    onToggleFilterMode: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val formattedStorage = remember(uiState.storageUsedBytes) {
+        Formatter.formatShortFileSize(context, uiState.storageUsedBytes)
+    }
+    val isAllOffline = uiState.filterMode == DownloadFilterMode.ALL_OFFLINE
+
+    Card(
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = if (isAllOffline) "All Offline Storage" else stringResource(R.string.cloud_downloads_storage_used),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = formattedStorage,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (isAllOffline) {
+                            "${uiState.totalCompletedCount} offline songs"
+                        } else {
+                            stringResource(
+                                R.string.cloud_downloads_storage_summary,
+                                uiState.totalCompletedCount,
+                                uiState.totalCount
+                            )
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isAllOffline) MaterialTheme.colorScheme.secondaryContainer 
+                            else MaterialTheme.colorScheme.primaryContainer
+                        )
+                        .clickable(onClick = onToggleFilterMode),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AnimatedContent(
+                        targetState = isAllOffline,
+                        label = "FilterIconToggleAnim"
+                    ) { allMode ->
+                        Icon(
+                            imageVector = if (allMode) Icons.Rounded.AllInclusive else Icons.Rounded.CloudDownload,
+                            contentDescription = if (allMode) "All offline audio" else "Downloaded only",
+                            tint = if (allMode) MaterialTheme.colorScheme.onSecondaryContainer 
+                                   else MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+            }
+
+            // Downloading status pill with Pause/Resume and Cancel All buttons on the card
+            if (uiState.activeDownloads.isNotEmpty() || uiState.isDownloadsPaused) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (uiState.isDownloadsPaused) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .background(MaterialTheme.colorScheme.errorContainer, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Pause,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(12.dp),
+                                        tint = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            } else {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.5.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            val activePlCount = uiState.activeDownloads.count { it.isPlaylist }
+                            val activeSongCount = uiState.activeDownloads.size - activePlCount
+                            val activeText = if (uiState.isDownloadsPaused) {
+                                "Downloads paused"
+                            } else {
+                                buildString {
+                                    append(stringResource(R.string.cloud_downloading))
+                                    append(" ")
+                                    if (activePlCount > 0) {
+                                        append("$activePlCount playlist${if (activePlCount > 1) "s" else ""}")
+                                        if (activeSongCount > 0) append(" · ")
+                                    }
+                                    if (activeSongCount > 0 || activePlCount == 0) {
+                                        append("$activeSongCount track${if (activeSongCount != 1) "s" else ""}")
+                                    }
+                                }
+                            }
+                            Text(
+                                text = activeText,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (uiState.isDownloadsPaused) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            IconButton(
+                                onClick = onTogglePause,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.isDownloadsPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                                    contentDescription = if (uiState.isDownloadsPaused) "Resume downloads" else "Pause downloads",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = onCancelAll,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = "Cancel all downloads",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Play all and Shuffle all buttons strictly on one line
+            if (uiState.completedDownloads.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = onPlayAll,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.cloud_download_play_all),
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    FilledTonalButton(
+                        onClick = onShuffleAll,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Shuffle,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.cloud_download_shuffle_all),
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun ActiveDownloadCard(
+    download: ActiveDownloadDisplayItem,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (download.isPlaylist) Icons.AutoMirrored.Rounded.QueueMusic else Icons.Rounded.CloudDownload,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = download.title.ifBlank { stringResource(R.string.cloud_downloads_unknown_track) },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                val statusText = download.subtitle.ifBlank {
+                    if (download.progress != null) {
+                        val progressPercent = (download.progress * 100).toInt()
+                        stringResource(R.string.cloud_downloading) + " ($progressPercent%)"
+                    } else {
+                        stringResource(R.string.cloud_download_queued)
+                    }
+                }
+
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                if (download.progress != null) {
+                    LinearProgressIndicator(
+                        progress = { download.progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            FilledIconButton(
+                onClick = onCancel,
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = stringResource(R.string.cancel),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FailedDownloadCard(
+    download: OfflineDownload,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = download.title.ifBlank { stringResource(R.string.cloud_downloads_unknown_track) },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = download.errorMessage ?: stringResource(R.string.cloud_downloads_failed_fallback),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            IconButton(onClick = onRetry) {
+                Icon(
+                    imageVector = Icons.Rounded.Refresh,
+                    contentDescription = stringResource(R.string.cloud_download_retry),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = stringResource(R.string.cloud_remove_download),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}

@@ -1,0 +1,359 @@
+package com.unshoo.pixelmusic.presentation.screens
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.util.UnstableApi
+import com.unshoo.pixelmusic.data.model.LibraryTabId
+import com.unshoo.pixelmusic.data.model.Song
+import com.unshoo.pixelmusic.data.model.StorageFilter
+import com.unshoo.pixelmusic.data.model.SortOption
+import com.unshoo.pixelmusic.presentation.components.MiniPlayerHeight
+import com.unshoo.pixelmusic.presentation.viewmodel.PlayerViewModel
+import com.unshoo.pixelmusic.presentation.components.subcomps.EnhancedSongListItem
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.LoadState
+import com.unshoo.pixelmusic.R
+import com.unshoo.pixelmusic.presentation.components.ExpressiveScrollBar
+import com.unshoo.pixelmusic.presentation.components.songFastScrollLabel
+import com.unshoo.pixelmusic.presentation.utils.pagedKey
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.CircularProgressIndicator
+
+
+@androidx.annotation.OptIn(UnstableApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun LibrarySongsTab(
+    songs: LazyPagingItems<Song>, // Changed from ImmutableList<Song>
+    isLoading: Boolean, // Kept for initial load or other states, though Paging has its own
+    playerViewModel: PlayerViewModel,
+    bottomBarHeight: Dp,
+    onMoreOptionsClick: (Song) -> Unit,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    sortOption: SortOption, // Added sortOption parameter
+    // Multi-selection parameters
+    isSelectionMode: Boolean = false,
+    selectedSongIds: Set<String> = emptySet(),
+    onSongLongPress: (Song) -> Unit = {},
+    onSongSelectionToggle: (Song) -> Unit = {},
+    getSelectionIndex: (String) -> Int? = { null },
+    onLocateCurrentSongVisibilityChanged: (Boolean) -> Unit = {},
+    onRegisterLocateCurrentSongAction: ((() -> Unit)?) -> Unit = {},
+    storageFilter: StorageFilter = StorageFilter.ALL,
+    hasCurrentSong: Boolean = false
+) {
+    val listState = rememberLazyListState()
+    val pullToRefreshState = rememberPullToRefreshState()
+    val coroutineScope = rememberCoroutineScope()
+    val visibilityCallback by rememberUpdatedState(onLocateCurrentSongVisibilityChanged)
+    val registerActionCallback by rememberUpdatedState(onRegisterLocateCurrentSongAction)
+    val songFastScrollLabelProvider = remember(songs, sortOption) {
+        { index: Int ->
+            songFastScrollLabel(
+                song = if (index in 0 until songs.itemCount) songs.peek(index) else null,
+                sortOption = sortOption
+            )
+        }
+    }
+    var lastHandledSongSortKey by remember { mutableStateOf(sortOption.storageKey) }
+    var pendingSongSortScrollReset by remember { mutableStateOf(false) }
+    var songSortSawRefreshLoading by remember { mutableStateOf(false) }
+    val currentSongId by remember(playerViewModel) {
+        playerViewModel.stablePlayerState
+            .map { it.currentSong?.id }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = null)
+
+    val isPlaying by remember(playerViewModel) {
+        playerViewModel.stablePlayerState
+            .map { it.isPlaying }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = false)
+
+    // Check if list is effectively empty (based on Paging state)
+    // val isListEmpty = songs.itemCount == 0 && songs.loadState.refresh is LoadState.NotLoading
+    
+    // Scroll Handler from ViewModel (Centers playing song vertically in list)
+    LaunchedEffect(Unit) {
+        playerViewModel.scrollToIndexEvent.collect { index ->
+            if (index >= 0) {
+                 val viewportHeight = listState.layoutInfo.viewportSize.height
+                 val centerOffset = -(viewportHeight / 3)
+                 val firstVisible = listState.firstVisibleItemIndex
+                 if (Math.abs(index - firstVisible) > 20) {
+                     listState.scrollToItem(index, scrollOffset = centerOffset)
+                 } else {
+                     listState.animateScrollToItem(index, scrollOffset = centerOffset)
+                 }
+            }
+        }
+    }
+
+    // Do not auto-scan the whole PagingData snapshot when the track changes. With placeholders
+    // enabled that is an O(library size) main-thread loop (20k `peek` calls for a large
+    // library), even though most rows are not loaded. The explicit locate action above resolves
+    // the sorted position in the repository and emits `scrollToIndexEvent` instead.
+
+    // New action just triggers the ViewModel request
+    val locateCurrentSongAction: (() -> Unit)? = remember(currentSongId) {
+        if (currentSongId == null) {
+            null
+        } else {
+            {
+                playerViewModel.requestLocateCurrentSong()
+            }
+        }
+    }
+
+    LaunchedEffect(locateCurrentSongAction) {
+        registerActionCallback(locateCurrentSongAction)
+    }
+
+    LaunchedEffect(sortOption) {
+        val currentSortKey = sortOption.storageKey
+        if (currentSortKey == lastHandledSongSortKey) return@LaunchedEffect
+        lastHandledSongSortKey = currentSortKey
+        pendingSongSortScrollReset = true
+        songSortSawRefreshLoading = false
+        listState.scrollToItem(0)
+    }
+
+    // Apply a second reset after paging finishes refresh, to avoid key-anchor jumps.
+    LaunchedEffect(songs.loadState.refresh, pendingSongSortScrollReset) {
+        if (!pendingSongSortScrollReset) return@LaunchedEffect
+        if (songs.loadState.refresh is LoadState.Loading) {
+            songSortSawRefreshLoading = true
+            return@LaunchedEffect
+        }
+        if (!songSortSawRefreshLoading) return@LaunchedEffect
+        listState.scrollToItem(0)
+        pendingSongSortScrollReset = false
+    }
+
+    val isCurrentSongVisible by remember(listState, currentSongId) {
+        derivedStateOf {
+            if (currentSongId == null) false
+            else listState.layoutInfo.visibleItemsInfo.any { it.key == currentSongId }
+        }
+    }
+
+    LaunchedEffect(isCurrentSongVisible, hasCurrentSong, currentSongId) {
+        visibilityCallback(hasCurrentSong && currentSongId != null && !isCurrentSongVisible)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            visibilityCallback(false)
+            registerActionCallback(null)
+        }
+    }
+
+    val refreshState = songs.loadState.refresh
+    val reachedEndOfPagination = songs.loadState.append.endOfPaginationReached
+
+    val shouldLoadMore = remember {
+        derivedStateOf {
+            val totalItems = listState.layoutInfo.totalItemsCount
+            val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItems > 0 && lastVisibleItem >= totalItems - 4
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore.value) {
+        if (shouldLoadMore.value) {
+            if (songs.loadState.append is LoadState.Error) {
+                songs.retry()
+            } else if (songs.itemCount > 0 && !reachedEndOfPagination) {
+                songs.get(songs.itemCount - 1)
+            }
+        }
+    }
+
+    when {
+        refreshState is LoadState.Error && songs.itemCount == 0 -> {
+            val error = refreshState.error
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(stringResource(R.string.library_error_loading_songs), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        error?.localizedMessage ?: stringResource(R.string.error_unknown),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = { songs.retry() }) {
+                        Text(stringResource(R.string.library_retry), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+        songs.itemCount == 0 && refreshState is LoadState.NotLoading -> {
+            LibraryExpressiveEmptyState(
+                tabId = LibraryTabId.SONGS,
+                storageFilter = storageFilter,
+                bottomBarHeight = bottomBarHeight
+            )
+        }
+        else -> {
+            // Songs loaded
+            Box(modifier = Modifier.fillMaxSize()) {
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = onRefresh,
+                    state = pullToRefreshState,
+                    modifier = Modifier.fillMaxSize(),
+                    indicator = {
+                        PullToRefreshDefaults.LoadingIndicator(
+                            state = pullToRefreshState,
+                            isRefreshing = isRefreshing,
+                            modifier = Modifier.align(Alignment.TopCenter)
+                        )
+                    }
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            modifier = Modifier
+                                // Use fixed 22dp end padding to leave room for the scrollbar —
+                                // songs always fill more than a screen when in the content state.
+                                .padding(start = 12.dp, end = 22.dp, bottom = 6.dp)
+                                .clip(
+                                    RoundedCornerShape(
+                                        topStart = 26.dp,
+                                        topEnd = 26.dp,
+                                        bottomStart = PlayerSheetCollapsedCornerRadius,
+                                        bottomEnd = PlayerSheetCollapsedCornerRadius
+                                    )
+                                ),
+                            state = listState,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = bottomBarHeight + MiniPlayerHeight + 30.dp)
+                        ) {
+                            items(
+                                count = songs.itemCount,
+                                key = { index -> pagedKey("song", songs.peek(index)?.id, index) },
+                                contentType = { index ->
+                                    if (songs.peek(index) != null) "song" else "placeholder"
+                                }
+                            ) { index ->
+                                val song = songs[index]
+                                
+                                if (song != null) {
+                                    val isSelected = selectedSongIds.contains(song.id)
+                                    val isCurrent = song.id == currentSongId
+                                    val songIsPlaying = isCurrent && isPlaying
+
+                                    LibraryPlaybackAwareSongItem(
+                                        song = song,
+                                        playerViewModel = playerViewModel,
+                                        isCurrentSong = isCurrent,
+                                        isPlaying = songIsPlaying,
+                                        isSelected = isSelected,
+                                        isSelectionMode = isSelectionMode,
+                                        selectionIndex = if (isSelectionMode) getSelectionIndex(song.id) else null,
+                                        onLongPress = { onSongLongPress(song) },
+                                        onMoreOptionsClick = onMoreOptionsClick,
+                                        onClick = {
+                                            if (isSelectionMode) {
+                                                onSongSelectionToggle(song)
+                                            } else {
+                                                playerViewModel.showAndPlaySongFromLibrary(song)
+                                            }
+                                        }
+                                    )
+                                } else {
+                                     // Placeholder
+                                     EnhancedSongListItem(
+                                        song = Song.emptySong(),
+                                        isPlaying = false,
+                                        isLoading = true,
+                                        isCurrentSong = false,
+                                        onMoreOptionsClick = {},
+                                        onClick = {}
+                                     )
+                                }
+                            }
+
+                            if (songs.loadState.append is LoadState.Loading) {
+                                item(key = "songs_load_more_loader") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(28.dp),
+                                            strokeWidth = 2.5.dp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // ScrollBar Overlay
+                        val bottomPadding = if (hasCurrentSong)
+                            bottomBarHeight + MiniPlayerHeight + 16.dp 
+                        else 
+                            bottomBarHeight + 16.dp
+
+                        ExpressiveScrollBar(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 4.dp, top = 16.dp, bottom = bottomPadding),
+                            listState = listState,
+                            dragLabelProvider = songFastScrollLabelProvider
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
