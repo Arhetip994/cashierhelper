@@ -1,0 +1,642 @@
+diff --git a/app/src/main/java/com/unshoo/pixelmusic/data/lossless/LosslessStreamResolver.kt b/app/src/main/java/com/unshoo/pixelmusic/data/lossless/LosslessStreamResolver.kt
+index 92467ce..2d8c9e4 100644
+--- a/app/src/main/java/com/unshoo/pixelmusic/data/lossless/LosslessStreamResolver.kt
++++ b/app/src/main/java/com/unshoo/pixelmusic/data/lossless/LosslessStreamResolver.kt
+@@ -41,6 +41,7 @@ import com.unshoo.pixelmusic.data.lossless.constants.AppleMusicMediaUserTokenKey
+ import com.unshoo.pixelmusic.data.lossless.constants.AppleMusicSourceEnabledKey
+ import com.unshoo.pixelmusic.data.lossless.constants.AudioSourceOrderKey
+ import com.unshoo.pixelmusic.data.lossless.constants.AudioSourceType
++import com.unshoo.pixelmusic.data.lossless.constants.MonochromeEnabledKey
+ import com.unshoo.pixelmusic.data.lossless.constants.DeezerArlKey
+ import com.unshoo.pixelmusic.data.lossless.constants.PoolApiKeyKey
+ import com.unshoo.pixelmusic.data.lossless.constants.DeezerAudioQuality
+@@ -300,6 +301,7 @@ object LosslessStreamResolver {
+             .filter { it.isNotEmpty() }
+ 
+     private class SourceSettings(
++        val monochromeEnabled: Boolean,
+         val tidalEnabled: Boolean,
+         val qobuzEnabled: Boolean,
+         val deezerEnabled: Boolean,
+@@ -319,6 +321,7 @@ object LosslessStreamResolver {
+     private suspend fun readSettings(context: Context): SourceSettings {
+         val p = prefs(context)
+         return SourceSettings(
++            monochromeEnabled = p[MonochromeEnabledKey] ?: true,
+             tidalEnabled = p[TidalEnabledKey] ?: true,
+             qobuzEnabled = p[QobuzEnabledKey] ?: false,
+             deezerEnabled = p[DeezerEnabledKey] ?: false,
+@@ -344,6 +347,7 @@ object LosslessStreamResolver {
+     private fun resolutionChain(s: SourceSettings): List<AudioSourceType> {
+         val enabledDefaults =
+             mapOf(
++                AudioSourceType.MONOCHROME to s.monochromeEnabled,
+                 AudioSourceType.TIDAL to s.tidalEnabled,
+                 AudioSourceType.QOBUZ to s.qobuzEnabled,
+                 AudioSourceType.QOBUZ_BACKUP to false,
+@@ -362,6 +366,7 @@ object LosslessStreamResolver {
+     private fun isSourceEnabled(source: AudioSourceType, s: SourceSettings): Boolean =
+         when (source) {
+             AudioSourceType.YOUTUBE -> true
++            AudioSourceType.MONOCHROME -> s.monochromeEnabled
+             AudioSourceType.TIDAL -> s.tidalEnabled
+             AudioSourceType.QOBUZ -> s.qobuzEnabled
+             AudioSourceType.DEEZER -> s.deezerEnabled
+@@ -490,6 +495,7 @@ object LosslessStreamResolver {
+             Timber.tag(TAG).d("Trying source: %s for \"%s\"", source.name, request.title)
+             val stream: DirectStream? =
+                 when (source) {
++                    AudioSourceType.MONOCHROME -> resolveMonochromeStream(request, settings)
+                     AudioSourceType.TIDAL -> resolveTidalStream(context, request, settings)
+                     AudioSourceType.QOBUZ -> resolveQobuzStream(request, settings)
+                     AudioSourceType.DEEZER -> resolveDeezerStream(request, settings)
+@@ -1119,6 +1125,81 @@ object LosslessStreamResolver {
+         return bitsPerSecond.takeIf { it in 1L..50_000_000L }?.toInt()
+     }
+ 
++    private fun resolveMonochromeStream(request: Request, settings: SourceSettings): DirectStream? {
++        if (!settings.monochromeEnabled) return null
++        return try {
++            val query = if (request.artists.isNotEmpty()) {
++                "${request.artists.first()} ${request.title}"
++            } else {
++                request.title
++            }
++            val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
++            val url = "https://tracks.monochrome.st/search/tracks?q=$encodedQuery&limit=5"
++            val req = okhttp3.Request.Builder()
++                .url(url)
++                .header(
++                    "User-Agent",
++                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
++                )
++                .build()
++            val resp = httpClient.newCall(req).execute()
++            if (!resp.isSuccessful) return null
++            val body = resp.body?.string().orEmpty()
++            if (body.isBlank()) return null
++            val json = org.json.JSONObject(body)
++            val tracks = json.optJSONArray("tracks") ?: return null
++
++            var bestStream: DirectStream? = null
++            var bestScore = 0.0
++
++            for (i in 0 until tracks.length()) {
++                val item = tracks.optJSONObject(i) ?: continue
++                if (item.optBoolean("playable", true) == false) continue
++                val trackId = item.optString("id").ifBlank { item.optString("trackId") }
++                if (trackId.isBlank()) continue
++                val title = item.optString("title")
++                val artistNamesArray = item.optJSONArray("artistNames")
++                val artists = mutableListOf<String>()
++                if (artistNamesArray != null) {
++                    for (a in 0 until artistNamesArray.length()) {
++                        artists.add(artistNamesArray.optString(a))
++                    }
++                }
++                val durationMs = item.optLong("duration", 0L)
++                val effectiveDuration = if (durationMs > 10_000L) durationMs else durationMs * 1000L
++                val candidateStream = DirectStream(
++                    uri = "https://tracks.monochrome.st/track/$trackId",
++                    mimeType = androidx.media3.common.MimeTypes.AUDIO_FLAC,
++                    codecs = "flac",
++                    contentLength = null,
++                    label = "Monochrome FLAC (Free)",
++                    source = AudioSourceType.MONOCHROME,
++                    matchedTitle = title,
++                    matchedArtist = artists.firstOrNull(),
++                    matchedAlbum = item.optString("albumTitle").ifBlank { null },
++                    matchedDurationMs = effectiveDuration,
++                    sampleRate = 44100,
++                    bitDepth = 16
++                )
++                val match = TitleMatch.evaluate(
++                    wantedTitle = request.title,
++                    wantedArtists = request.artists,
++                    wantedAlbum = request.album,
++                    wantedDurationMs = request.durationMs,
++                    stream = candidateStream
++                )
++                if (match.accepted && match.score > bestScore) {
++                    bestScore = match.score
++                    bestStream = candidateStream
++                }
++            }
++            bestStream
++        } catch (e: Exception) {
++            Timber.tag(TAG).w(e, "Monochrome stream resolve failed for %s", request.title)
++            null
++        }
++    }
++
+     private fun sourceCacheKey(
+         source: AudioSourceType,
+         mediaId: String,
+diff --git a/app/src/main/java/com/unshoo/pixelmusic/data/lossless/SourceCheckService.kt b/app/src/main/java/com/unshoo/pixelmusic/data/lossless/SourceCheckService.kt
+index b445731..e226739 100644
+--- a/app/src/main/java/com/unshoo/pixelmusic/data/lossless/SourceCheckService.kt
++++ b/app/src/main/java/com/unshoo/pixelmusic/data/lossless/SourceCheckService.kt
+@@ -63,6 +63,7 @@ object SourceCheckService {
+         val result =
+             withContext(Dispatchers.IO) {
+                 when (source) {
++                    AudioSourceType.MONOCHROME -> checkMonochrome()
+                     AudioSourceType.TIDAL -> checkTidal(context)
+                     AudioSourceType.QOBUZ -> checkQobuz(context)
+                     AudioSourceType.DEEZER -> checkDeezer(context)
+@@ -346,4 +347,33 @@ object SourceCheckService {
+             )
+         }
+     }
++
++    private fun checkMonochrome(): SourceCheckResult {
++        return try {
++            val req = okhttp3.Request.Builder()
++                .url("https://tracks.monochrome.st/search/tracks?q=test&limit=1")
++                .header(
++                    "User-Agent",
++                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
++                )
++                .build()
++            val resp = LosslessStreamResolver.httpClient.newCall(req).execute()
++            if (resp.isSuccessful) {
++                SourceCheckResult(
++                    status = SourceCheckStatus.READY,
++                    summary = "Monochrome FLAC endpoint answered (HTTP ${resp.code}). Free Lossless FLAC streaming active.",
++                )
++            } else {
++                SourceCheckResult(
++                    status = SourceCheckStatus.DEGRADED,
++                    summary = "Monochrome returned HTTP ${resp.code}.",
++                )
++            }
++        } catch (e: Exception) {
++            SourceCheckResult(
++                status = SourceCheckStatus.UNREACHABLE,
++                summary = "Failed to connect to Monochrome: ${e.message}",
++            )
++        }
++    }
+ }
+diff --git a/app/src/main/java/com/unshoo/pixelmusic/data/lossless/audiosource/AudioSourceConfig.kt b/app/src/main/java/com/unshoo/pixelmusic/data/lossless/audiosource/AudioSourceConfig.kt
+index 6981fd4..e280741 100644
+--- a/app/src/main/java/com/unshoo/pixelmusic/data/lossless/audiosource/AudioSourceConfig.kt
++++ b/app/src/main/java/com/unshoo/pixelmusic/data/lossless/audiosource/AudioSourceConfig.kt
+@@ -254,6 +254,7 @@ object AudioSourceConfig {
+      */
+     val DEFAULT_ORDER: List<AudioSourceType> =
+         listOf(
++            AudioSourceType.MONOCHROME,
+             AudioSourceType.TIDAL,
+             AudioSourceType.QOBUZ,
+             AudioSourceType.QOBUZ_BACKUP,
+diff --git a/app/src/main/java/com/unshoo/pixelmusic/data/lossless/constants/LosslessPreferenceKeys.kt b/app/src/main/java/com/unshoo/pixelmusic/data/lossless/constants/LosslessPreferenceKeys.kt
+index eca9e46..9d50c57 100644
+--- a/app/src/main/java/com/unshoo/pixelmusic/data/lossless/constants/LosslessPreferenceKeys.kt
++++ b/app/src/main/java/com/unshoo/pixelmusic/data/lossless/constants/LosslessPreferenceKeys.kt
+@@ -190,7 +190,11 @@ fun DeezerAudioQuality.toFormatName(): String =
+  * ArchiveTune's Qobuz-backup relay was not ported), JIOSAAVN maps to the app's existing
+  * `SaavnService` gate, and YOUTUBE is the terminal fallback.
+  */
++// ── Monochrome (FLAC) ──────────────────────────────────────────────────────────────────────
++val MonochromeEnabledKey = booleanPreferencesKey("monochromeEnabled")
++
+ enum class AudioSourceType {
++    MONOCHROME,
+     TIDAL,
+     QOBUZ,
+     QOBUZ_BACKUP,
+diff --git a/app/src/main/java/com/unshoo/pixelmusic/data/remote/monochrome/MonochromeClient.kt b/app/src/main/java/com/unshoo/pixelmusic/data/remote/monochrome/MonochromeClient.kt
+new file mode 100644
+index 0000000..33dc4c2
+--- /dev/null
++++ b/app/src/main/java/com/unshoo/pixelmusic/data/remote/monochrome/MonochromeClient.kt
+@@ -0,0 +1,118 @@
++package com.unshoo.pixelmusic.data.remote.monochrome
++
++import android.util.Log
++import com.google.gson.Gson
++import com.google.gson.annotations.SerializedName
++import com.unshoo.pixelmusic.data.model.ArtistRef
++import com.unshoo.pixelmusic.data.model.Song
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++import okhttp3.OkHttpClient
++import okhttp3.Request
++import java.net.URLEncoder
++import java.util.concurrent.TimeUnit
++import javax.inject.Inject
++import javax.inject.Singleton
++
++@Singleton
++class MonochromeClient @Inject constructor(
++    private val okHttpClient: OkHttpClient,
++    private val gson: Gson
++) {
++    companion object {
++        private const val TAG = "MonochromeClient"
++        const val BASE_URL = "https://tracks.monochrome.st"
++        private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
++    }
++
++    private data class SearchResponse(
++        @SerializedName("tracks") val tracks: List<TrackItem>? = null
++    )
++
++    private data class TrackItem(
++        @SerializedName("id") val id: String? = null,
++        @SerializedName("trackId") val trackId: String? = null,
++        @SerializedName("title") val title: String? = null,
++        @SerializedName("artistNames") val artistNames: List<String>? = null,
++        @SerializedName("releaseTitle") val releaseTitle: String? = null,
++        @SerializedName("albumTitle") val albumTitle: String? = null,
++        @SerializedName("artwork") val artwork: String? = null,
++        @SerializedName("duration") val duration: Long? = null,
++        @SerializedName("playable") val playable: Boolean? = true,
++        @SerializedName("isrc") val isrc: String? = null
++    )
++
++    suspend fun searchTracks(query: String, limit: Int = 20): List<Song> = withContext(Dispatchers.IO) {
++        if (query.isBlank()) return@withContext emptyList()
++        try {
++            val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
++            val url = "$BASE_URL/search/tracks?q=$encodedQuery&limit=$limit"
++
++            val request = Request.Builder()
++                .url(url)
++                .header("User-Agent", USER_AGENT)
++                .header("Accept", "application/json")
++                .get()
++                .build()
++
++            okHttpClient.newCall(request).execute().use { response ->
++                if (!response.isSuccessful) {
++                    Log.w(TAG, "Monochrome search HTTP ${response.code}")
++                    return@withContext emptyList()
++                }
++
++                val body = response.body.string()
++                val parsed = gson.fromJson(body, SearchResponse::class.java)
++                val tracks = parsed?.tracks.orEmpty()
++
++                tracks.mapNotNull { item ->
++                    val resolvedId = item.trackId ?: item.id ?: return@mapNotNull null
++                    if (item.playable == false) return@mapNotNull null
++                    val title = item.title?.trim().takeIf { !it.isNullOrBlank() } ?: return@mapNotNull null
++                    val artistsList = item.artistNames.orEmpty().filter { it.isNotBlank() }
++                    val artistName = artistsList.joinToString(", ").ifBlank { "Unknown Artist" }
++                    val albumName = item.albumTitle ?: item.releaseTitle ?: "Unknown Album"
++                    val durationMs = when {
++                        item.duration == null -> 0L
++                        item.duration > 10_000L -> item.duration
++                        else -> item.duration * 1000L
++                    }
++
++                    val artistRefs = artistsList.mapIndexed { idx, name ->
++                        ArtistRef(
++                            name = name,
++                            id = name.hashCode().toLong(),
++                            isPrimary = idx == 0
++                        )
++                    }
++
++                    Song(
++                        id = "monochrome_$resolvedId",
++                        title = title,
++                        artist = artistName,
++                        artistId = artistName.hashCode().toLong(),
++                        artists = artistRefs,
++                        album = albumName,
++                        albumId = albumName.hashCode().toLong(),
++                        albumArtist = artistsList.firstOrNull(),
++                        path = "$BASE_URL/track/$resolvedId",
++                        contentUriString = "monochrome://$resolvedId",
++                        albumArtUriString = item.artwork,
++                        duration = durationMs,
++                        mimeType = "audio/flac",
++                        bitrate = 1411,
++                        sampleRate = 44100,
++                        dateAdded = System.currentTimeMillis()
++                    )
++                }
++            }
++        } catch (e: Exception) {
++            Log.e(TAG, "Failed searching Monochrome: ${e.message}", e)
++            emptyList()
++        }
++    }
++
++    fun getStreamUrl(trackId: String): String {
++        return "$BASE_URL/track/$trackId"
++    }
++}
+diff --git a/app/src/main/java/com/unshoo/pixelmusic/data/service/player/DualPlayerEngine.kt b/app/src/main/java/com/unshoo/pixelmusic/data/service/player/DualPlayerEngine.kt
+index 89ccee3..ec7a5e3 100644
+--- a/app/src/main/java/com/unshoo/pixelmusic/data/service/player/DualPlayerEngine.kt
++++ b/app/src/main/java/com/unshoo/pixelmusic/data/service/player/DualPlayerEngine.kt
+@@ -110,7 +110,7 @@ class DualPlayerEngine @Inject constructor(
+         private const val HTTP_READ_TIMEOUT_MS = 5_000
+         private const val FIRST_CHUNK_PRECACHE_BYTES = 256L * 1024L // 256KB — enough for instant start
+         private val LOCAL_MEDIA_SCHEMES = setOf("content", "file", "android.resource")
+-        private val REMOTE_MEDIA_SCHEMES = setOf("http", "https", "telegram", "gdrive", "youtube")
++        private val REMOTE_MEDIA_SCHEMES = setOf("http", "https", "telegram", "gdrive", "youtube", "monochrome")
+     }
+ 
+     data class TransitionTarget(
+@@ -533,8 +533,8 @@ class DualPlayerEngine @Inject constructor(
+     private val preCacheHttpFactory by lazy {
+         DefaultHttpDataSource.Factory()
+             .setUserAgent(
+-                "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
+-                    "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
++                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
++                    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+             )
+             .setConnectTimeoutMs(HTTP_CONNECT_TIMEOUT_MS)
+             .setReadTimeoutMs(HTTP_READ_TIMEOUT_MS)
+@@ -975,7 +975,7 @@ class DualPlayerEngine @Inject constructor(
+                 // Only resolve custom schemes that cannot be loaded natively by ExoPlayer.
+                 // CRITICAL: Never call runBlocking here. ExoPlayer load threads can stall the
+                 // MediaSession/UI binder path and freeze the miniplayer when song cards are tapped.
+-                if (scheme == "telegram" || scheme == "gdrive" || scheme == "youtube") {
++                if (scheme == "telegram" || scheme == "gdrive" || scheme == "youtube" || scheme == "monochrome") {
+                     val originalUri = uri.toString()
+                     val diskUri = resolveLocalDiskFile(originalUri)
+                     if (diskUri != null) {
+@@ -1042,8 +1042,8 @@ class DualPlayerEngine @Inject constructor(
+         // Explicit HTTP timeouts for low-connectivity resilience.
+         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+             .setUserAgent(
+-                "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
+-                    "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
++                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
++                    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+             )
+             .setConnectTimeoutMs(HTTP_CONNECT_TIMEOUT_MS)
+             .setReadTimeoutMs(HTTP_READ_TIMEOUT_MS)
+@@ -1263,6 +1263,10 @@ class DualPlayerEngine @Inject constructor(
+                             "telegram" -> resolveTelegramUriAsync(uri, uriString)
+                             "gdrive" -> resolveGDriveUriAsync(uriString)
+                             "youtube" -> resolveYoutubeUriAsync(uriString)
++                            "monochrome" -> {
++                                val trackId = uriString.substringAfter("monochrome://")
++                                Uri.parse("https://tracks.monochrome.st/track/$trackId")
++                            }
+                             else -> null
+                         }
+                     }
+@@ -1403,7 +1407,8 @@ class DualPlayerEngine @Inject constructor(
+             // must not be registered in the local-file caches (they expire / get evicted).
+             if (LosslessSchemeRoutingDataSource.isCustomLosslessScheme(path) ||
+                 path.startsWith("file:") ||
+-                path.startsWith("apple-pending:")
++                path.startsWith("apple-pending:") ||
++                path.contains("monochrome.st/track/")
+             ) {
+                 return@withContext Uri.parse(path)
+             }
+@@ -1460,6 +1465,8 @@ class DualPlayerEngine @Inject constructor(
+             if (cachedMime != null) {
+                 builder.setMimeType(cachedMime)
+             }
++        } else if (scheme == "monochrome" || resolvedUri.toString().contains("monochrome.st/track/")) {
++            builder.setMimeType(androidx.media3.common.MimeTypes.AUDIO_FLAC)
+         }
+         return builder.build()
+     }
+diff --git a/app/src/main/java/com/unshoo/pixelmusic/presentation/components/subcomps/EnhancedSongListItem.kt b/app/src/main/java/com/unshoo/pixelmusic/presentation/components/subcomps/EnhancedSongListItem.kt
+index 7661758..4b8d538 100644
+--- a/app/src/main/java/com/unshoo/pixelmusic/presentation/components/subcomps/EnhancedSongListItem.kt
++++ b/app/src/main/java/com/unshoo/pixelmusic/presentation/components/subcomps/EnhancedSongListItem.kt
+@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.unit.sp
+ import androidx.compose.ui.graphics.lerp as lerpColor
+ import androidx.compose.ui.input.pointer.pointerInput
+ import androidx.compose.ui.text.font.FontWeight
+@@ -397,14 +398,36 @@ fun EnhancedSongListItem(
+                         color = contentColor,
+                         overflow = TextOverflow.Ellipsis
+                     )
+-                    Spacer(modifier = Modifier.height(4.dp))
+-                    Text(
+-                        text = song.displayArtist,
+-                        style = MaterialTheme.typography.bodyMedium,
+-                        color = contentColor.copy(alpha = 0.7f),
+-                        maxLines = 1,
+-                        overflow = TextOverflow.Ellipsis
+-                    )
++                    val isLossless = song.id.startsWith("monochrome_") || 
++                        song.contentUriString.startsWith("monochrome://") || 
++                        song.contentUriString.endsWith(".flac", ignoreCase = true)
++
++                    Row(verticalAlignment = Alignment.CenterVertically) {
++                        if (isLossless) {
++                            Surface(
++                                shape = RoundedCornerShape(4.dp),
++                                color = MaterialTheme.colorScheme.tertiaryContainer,
++                                modifier = Modifier.padding(end = 6.dp)
++                            ) {
++                                Text(
++                                    text = "FLAC",
++                                    style = MaterialTheme.typography.labelSmall.copy(
++                                        fontWeight = FontWeight.Bold,
++                                        fontSize = 10.sp
++                                    ),
++                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
++                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
++                                )
++                            }
++                        }
++                        Text(
++                            text = song.displayArtist,
++                            style = MaterialTheme.typography.bodyMedium,
++                            color = contentColor.copy(alpha = 0.7f),
++                            maxLines = 1,
++                            overflow = TextOverflow.Ellipsis
++                        )
++                    }
+                 }
+                 
+                 val showPlayingIndicator = isCurrentSong && !isSelectionMode
+diff --git a/app/src/main/java/com/unshoo/pixelmusic/presentation/screens/lossless/LosslessSourcesSettings.kt b/app/src/main/java/com/unshoo/pixelmusic/presentation/screens/lossless/LosslessSourcesSettings.kt
+index aaade4b..83fd290 100644
+--- a/app/src/main/java/com/unshoo/pixelmusic/presentation/screens/lossless/LosslessSourcesSettings.kt
++++ b/app/src/main/java/com/unshoo/pixelmusic/presentation/screens/lossless/LosslessSourcesSettings.kt
+@@ -200,6 +200,24 @@ fun LosslessSourcesSettings(
+         )
+     }
+ 
++    // ── Monochrome (FLAC) ──────────────────────────────────────────────────────────────────────
++    LosslessSubsection(title = "Monochrome (FLAC)") {
++        SwitchSettingItem(
++            title = "Use Monochrome",
++            subtitle = "Direct Lossless 16-bit/44.1 kHz FLAC stream provider (Free, no account needed).",
++            checked = state.monochromeEnabled,
++            onCheckedChange = viewModel::setMonochromeEnabled,
++            leadingIcon = { Icon(Icons.Outlined.GraphicEq, null, tint = secondary) },
++        )
++        CheckRow(
++            source = AudioSourceType.MONOCHROME,
++            result = checkResults[AudioSourceType.MONOCHROME],
++            busy = AudioSourceType.MONOCHROME.name in busy,
++            onCheck = { viewModel.checkSource(AudioSourceType.MONOCHROME) },
++            onDetails = { r -> resultDialog = "Monochrome" to r },
++        )
++    }
++
+     // ── Tidal ─────────────────────────────────────────────────────────────────────────────────
+     LosslessSubsection(title = "Tidal") {
+         SwitchSettingItem(
+@@ -1037,6 +1055,7 @@ private fun PoolHealthAndFeedCard(
+ 
+ private fun AudioSourceType.displayName(): String =
+     when (this) {
++        AudioSourceType.MONOCHROME -> "Monochrome (FLAC)"
+         AudioSourceType.TIDAL -> "Tidal"
+         AudioSourceType.QOBUZ -> "Qobuz"
+         AudioSourceType.QOBUZ_BACKUP -> "Qobuz backup"
+diff --git a/app/src/main/java/com/unshoo/pixelmusic/presentation/viewmodel/LosslessSourcesViewModel.kt b/app/src/main/java/com/unshoo/pixelmusic/presentation/viewmodel/LosslessSourcesViewModel.kt
+index 4037cac..1870b36 100644
+--- a/app/src/main/java/com/unshoo/pixelmusic/presentation/viewmodel/LosslessSourcesViewModel.kt
++++ b/app/src/main/java/com/unshoo/pixelmusic/presentation/viewmodel/LosslessSourcesViewModel.kt
+@@ -19,6 +19,7 @@ import com.unshoo.pixelmusic.data.lossless.constants.AppleMusicQualityKey
+ import com.unshoo.pixelmusic.data.lossless.constants.AppleMusicSourceEnabledKey
+ import com.unshoo.pixelmusic.data.lossless.constants.AudioSourceOrderKey
+ import com.unshoo.pixelmusic.data.lossless.constants.AudioSourceType
++import com.unshoo.pixelmusic.data.lossless.constants.MonochromeEnabledKey
+ import com.unshoo.pixelmusic.data.lossless.constants.DeezerAccountNameKey
+ import com.unshoo.pixelmusic.data.lossless.constants.DeezerAccountPremiumKey
+ import com.unshoo.pixelmusic.data.lossless.constants.DeezerArlKey
+@@ -80,7 +81,9 @@ data class LosslessSourcesUiState(
+     val poolBuildTimeKeyPresent: Boolean = com.unshoo.pixelmusic.BuildConfig.SOURCE_PROVIDER_KEY.isNotBlank(),
+     val poolEffectiveBaseUrl: String = com.unshoo.pixelmusic.BuildConfig.SOURCE_PROVIDER_URL,
+     val sourceOrder: List<AudioSourceType> =
+-        listOf(AudioSourceType.TIDAL, AudioSourceType.QOBUZ, AudioSourceType.DEEZER, AudioSourceType.APPLE),
++        listOf(AudioSourceType.MONOCHROME, AudioSourceType.TIDAL, AudioSourceType.QOBUZ, AudioSourceType.DEEZER, AudioSourceType.APPLE),
++    // Monochrome
++    val monochromeEnabled: Boolean = true,
+     // Tidal
+     val tidalEnabled: Boolean = true,
+     val tidalQuality: TidalAudioQuality = TidalAudioQuality.FLAC,
+@@ -127,7 +130,13 @@ class LosslessSourcesViewModel @Inject constructor(
+ ) : ViewModel() {
+ 
+     private companion object {
+-        val LOSSLESS_TYPES = setOf(AudioSourceType.TIDAL, AudioSourceType.QOBUZ, AudioSourceType.DEEZER, AudioSourceType.APPLE)
++        val LOSSLESS_TYPES = setOf(
++            AudioSourceType.MONOCHROME,
++            AudioSourceType.TIDAL,
++            AudioSourceType.QOBUZ,
++            AudioSourceType.DEEZER,
++            AudioSourceType.APPLE
++        )
+     }
+ 
+     val uiState: StateFlow<LosslessSourcesUiState> =
+@@ -139,6 +148,7 @@ class LosslessSourcesViewModel @Inject constructor(
+                     poolBaseUrl = p[PoolBaseUrlKey].orEmpty(),
+                     poolEffectiveBaseUrl = PoolAccountManager.baseUrlOrNull.orEmpty(),
+                     sourceOrder = AudioSourceConfig.parseOrder(p[AudioSourceOrderKey]?.ifBlank { null }).filter { it in LOSSLESS_TYPES },
++                    monochromeEnabled = p[MonochromeEnabledKey] ?: true,
+                     tidalEnabled = p[TidalEnabledKey] ?: true,
+                     tidalQuality = enumOrDefault(p[TidalAudioQualityKey], TidalAudioQuality.FLAC),
+                     tidalAccountFirst = p[TidalAccountFirstKey] ?: true,
+@@ -304,6 +314,13 @@ class LosslessSourcesViewModel @Inject constructor(
+         _lastMessage.value = "Cleared resolved lossless streams"
+     }
+ 
++    // ── Monochrome ────────────────────────────────────────────────────────────────────────────
++
++    fun setMonochromeEnabled(enabled: Boolean) {
++        set(MonochromeEnabledKey, enabled)
++        LosslessStreamResolver.clearAll()
++    }
++
+     // ── Tidal ─────────────────────────────────────────────────────────────────────────────────
+ 
+     fun setTidalEnabled(enabled: Boolean) {
+diff --git a/app/src/main/java/com/unshoo/pixelmusic/presentation/viewmodel/PlayerViewModel.kt b/app/src/main/java/com/unshoo/pixelmusic/presentation/viewmodel/PlayerViewModel.kt
+index 36b6aaf..77a0f17 100644
+--- a/app/src/main/java/com/unshoo/pixelmusic/presentation/viewmodel/PlayerViewModel.kt
++++ b/app/src/main/java/com/unshoo/pixelmusic/presentation/viewmodel/PlayerViewModel.kt
+@@ -6257,7 +6257,8 @@ class PlayerViewModel @Inject constructor(
+                 scheme == "navidrome" ||
+                 scheme == "jellyfin" ||
+                 scheme == "gdrive" ||
+-                scheme == "youtube"
++                scheme == "youtube" ||
++                scheme == "monochrome"
+             ) {
+                 if (scheme == "telegram") {
+                     ensureTelegramPlaybackObserversStarted()
+diff --git a/app/src/main/java/com/unshoo/pixelmusic/presentation/viewmodel/SearchStateHolder.kt b/app/src/main/java/com/unshoo/pixelmusic/presentation/viewmodel/SearchStateHolder.kt
+index f160fdc..d64f2b2 100644
+--- a/app/src/main/java/com/unshoo/pixelmusic/presentation/viewmodel/SearchStateHolder.kt
++++ b/app/src/main/java/com/unshoo/pixelmusic/presentation/viewmodel/SearchStateHolder.kt
+@@ -47,7 +47,8 @@ import kotlinx.coroutines.flow.first
+ class SearchStateHolder @Inject constructor(
+     @param:dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
+     private val userPreferencesRepository: UserPreferencesRepository,
+-    private val musicRepository: MusicRepository
++    private val musicRepository: MusicRepository,
++    private val monochromeClient: com.unshoo.pixelmusic.data.remote.monochrome.MonochromeClient
+ ) {
+     companion object {
+         const val SEARCH_DEBOUNCE_MS = 150L
+@@ -279,10 +280,12 @@ class SearchStateHolder @Inject constructor(
+         when (filter) {
+             SearchFilterType.ALL -> coroutineScope {
+                 val songsDeferred = async { YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrNull() }
++                val monochromeDeferred = async { monochromeClient.searchTracks(query, limit = 8) }
+                 val artistsDeferred = async { YouTube.search(query, YouTube.SearchFilter.FILTER_ARTIST).getOrNull() }
+                 val albumsDeferred = async { YouTube.search(query, YouTube.SearchFilter.FILTER_ALBUM).getOrNull() }
+                 val playlistsDeferred = async { YouTube.search(query, YouTube.SearchFilter.FILTER_FEATURED_PLAYLIST).getOrNull() }
+ 
++                val monochromeSongs = try { monochromeDeferred.await() } catch (_: Exception) { emptyList() }
+                 val songsResult = songsDeferred.await()
+                 val artistsResult = artistsDeferred.await()
+                 val albumsResult = albumsDeferred.await()
+@@ -293,6 +296,9 @@ class SearchStateHolder @Inject constructor(
+                 val topSongs = mutableListOf<SearchResultItem>()
+                 val mixedItems = mutableListOf<SearchResultItem>()
+ 
++                // Add Monochrome lossless tracks to top results
++                monochromeSongs.forEach { topSongs.add(SearchResultItem.SongItem(it)) }
++
+                 val songsList = songsResult?.items?.filterIsInstance<SongItem>()?.filterVideo(pureYtMusicOnly).orEmpty()
+                 val artistsList = artistsResult?.items?.filterIsInstance<ArtistItem>().orEmpty()
+                 val albumsList = albumsResult?.items?.filterIsInstance<AlbumItem>().orEmpty()
+@@ -350,9 +356,13 @@ class SearchStateHolder @Inject constructor(
+                     items.addAll(mixedItems)
+                 }
+             }
+-            SearchFilterType.SONGS -> {
+-                val result = YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrNull()
++            SearchFilterType.SONGS -> coroutineScope {
++                val songsDeferred = async { YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrNull() }
++                val monochromeDeferred = async { monochromeClient.searchTracks(query, limit = 15) }
++                val monochromeSongs = try { monochromeDeferred.await() } catch (_: Exception) { emptyList() }
++                val result = songsDeferred.await()
+                 lastContinuationToken = result?.continuation
++                monochromeSongs.forEach { items.add(SearchResultItem.SongItem(it)) }
+                 result?.items?.filterIsInstance<SongItem>()?.filterVideo(pureYtMusicOnly)?.forEach { items.add(SearchResultItem.SongItem(it.toNativeSong())) }
+             }
+             SearchFilterType.ARTISTS -> {
+diff --git a/app/src/main/java/com/unshoo/pixelmusic/utils/MediaItemBuilder.kt b/app/src/main/java/com/unshoo/pixelmusic/utils/MediaItemBuilder.kt
+index 9b9eff6..2639fa2 100644
+--- a/app/src/main/java/com/unshoo/pixelmusic/utils/MediaItemBuilder.kt
++++ b/app/src/main/java/com/unshoo/pixelmusic/utils/MediaItemBuilder.kt
+@@ -157,6 +157,10 @@ object MediaItemBuilder {
+         filePath: String?,
+         mimeType: String?
+     ): String? {
++        if (contentUriString.startsWith("monochrome://") || contentUriString.contains("monochrome.st/track/")) {
++            return androidx.media3.common.MimeTypes.AUDIO_FLAC
++        }
++
+         val normalizedMimeType = mimeType?.trim()?.lowercase()
+         if (normalizedMimeType.isNullOrBlank()) {
+             return null
