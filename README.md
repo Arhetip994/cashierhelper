@@ -16,6 +16,9 @@ This document provides a comprehensive, in-depth architectural and technical bre
 9. [Decoupled Multi-Source Lyrics Resolution](#9-decoupled-multi-source-lyrics-resolution)
 10. [Comprehensive Performance & Architectural Optimizations](#10-comprehensive-performance--architectural-optimizations)
 11. [Studio Hi-Res Qobuz (Paxsenix API) & Tidal Multi-Source Streaming Engine](#11-studio-hi-res-qobuz-paxsenix-api--tidal-multi-source-streaming-engine)
+12. [Subphrase & Backing Vocal Engine (Smart Separation & Anti-Clipping Typography)](#12-subphrase--backing-vocal-engine-smart-separation--anti-clipping-typography)
+13. [Universal Multi-Platform Playlist Importer](#13-universal-multi-platform-playlist-importer)
+14. [Pluggable Multi-Model AI Orchestrator & Live Model Discovery](#14-pluggable-multi-model-ai-orchestrator--live-model-discovery)
 
 ---
 
@@ -391,4 +394,111 @@ Lossless audio streaming traditionally requires paid subscriptions, specialized 
 * **Lossless Settings UI & Source Verification**:
   * Added configurable Paxsenix API Key input under **Settings → Lossless Sources → Qobuz**.
   * Dynamic source status check verifies key readiness in real-time (`SourceCheckService.kt`).
+
+---
+
+## 12. Subphrase & Backing Vocal Engine (Smart Separation & Anti-Clipping Typography)
+
+### 🎯 Overview
+Many popular songs contain ad-libs, backing echoes, and parenthetical subphrases (e.g. `(Ooh, yeah)`, `(Timeless)`). In raw lyric files, these are often embedded inline or surrounded by brackets, causing messy screen clutter, truncated text, or jarring autoscroll leaps where the player abruptly switches focus away from the lead singer. PixelMusic introduces an intelligent subphrase parser and anti-clipping typography engine that separates backing vocals into clean, secondary lines (`isBackground = true`) while maintaining uninterrupted focus on the lead vocal line.
+
+```
+Raw LRC Line:  [00:15.50] Ever since I was a jit, knew I was the shit (Ooh, yeah)
+                                     │
+                                     ▼ (Smart Subphrase Extractor)
+Lead Line (00:15.50):    "Ever since I was a jit, knew I was the shit"   [isBackground = false]
+Backing Line (00:17.80): "Ooh, yeah" (Centered, Italic, Staggered +60%)   [isBackground = true]
+```
+
+### ⚙️ How It Works Under the Hood
+* **Multi-Format Bracket Extraction & Sanitization (`LyricsUtils.kt`)**:
+  * Scans for inline and full-line bracketed phrases across all Unicode bracket variants: `(...)`, `[...]`, `（...）`, `【...】`, `〔...〕`, `《...》`.
+  * Handles unclosed or malformed brackets gracefully without leaving raw punctuation characters on screen.
+  * Preserves word-by-word syllable synchronization for both lead and backing vocal words when available.
+* **Lead-Centric Auto-Scroll Protection (`resolveCurrentLineIndex`)**:
+  * When resolving the active line for auto-scrolling, the algorithm prioritizes active lead vocal lines over background subphrases (`!line.isBackground`).
+  * Autoscroll focus remains locked to the main vocal phrase and never jerks up or down prematurely when a backing echo starts.
+* **Natural Phrase Staggering Offset**:
+  * For standard line-synced lyrics where backing words do not have independent timestamps, the engine automatically calculates a natural delay offset:
+    $$\text{Offset} = \text{Duration} \times 0.60 \quad (\text{bounded between } 600\text{ms and } \text{Duration} - 300\text{ms})$$
+  * The lead singer vocal is illuminated first, with the subphrase gently joining in toward the end of the musical measure.
+* **Anti-Clipping Typography & Layout (`LyricsSheet.kt`)**:
+  * **No Hard Bounds Clipping**: Removed rigid rounded-corner box clipping (`.clip(RoundedCornerShape)`) that historically cut off the edges and corners of letters.
+  * **Italic Slant Breathing Room**: Added dedicated internal padding to word spans and text containers so slanted italic glyphs (e.g., `t`, `k`, `f`, `l`, `d`) and descenders (`g`, `j`, `p`, `y`) render completely without clipping.
+  * **Proportional Line Height**: Scaled `lineHeight` to $1.45\times$ font size for backing vocals, providing ample vertical head- and tail-room.
+  * **Scale Clamping**: Restricted background vocal focus scale to $1.0\times$ (instead of $1.08\times$), keeping subphrases subtle, non-intrusive, and firmly within display boundaries.
+
+---
+
+## 13. Universal Multi-Platform Playlist Importer
+
+### 🎯 Overview
+Migrating music libraries between platforms is typically tedious and requires manual playlist recreation. PixelMusic integrates a universal, format-agnostic playlist importer (`UniversalPlaylistImporter.kt`, `ImportSyncScreen.kt`) capable of importing playlists from major streaming services and standard local playlist formats.
+
+```
+┌────────────────────────────────────────────────────────┐
+│           UNIVERSAL PLAYLIST IMPORT PIPELINE           │
+├────────────────────────────────────────────────────────┤
+│ Sources: Spotify • Apple Music • Deezer • YouTube • M3U│
+│                          │                             │
+│                          ▼ (Extraction & Normalization)│
+│  [UniversalPlaylistImporter]                           │
+│    ├── Clean title & artist metadata parsing           │
+│    ├── High-accuracy catalog resolution & fuzzy match │
+│    └── Batch Room DB insertion into user playlists     │
+│                          │                             │
+│                          ▼                             │
+│ Result: Instant native playlist with offline & Hi-Res! │
+└────────────────────────────────────────────────────────┘
+```
+
+### ⚙️ How It Works Under the Hood
+* **Multi-Service URL & File Parsing**:
+  * **Spotify**: Resolves public playlist and album links directly via web metadata extraction.
+  * **Apple Music**: Parses Apple Music web share URLs and extracts tracklists without requiring MusicKit credentials.
+  * **Deezer & YouTube Music**: Normalizes track titles and artist names from public playlist shares.
+  * **M3U / M3U8 & Plain Text**: Local file import supporting extended M3U tags (`#EXTINF`) and plain text track listings (`Artist - Title`).
+* **Fuzzy Track Matching & Normalization**:
+  * Cleans track metadata by stripping remasters, deluxe edition tags, and audio noise before catalog lookup.
+  * Batch inserts matched songs directly into PixelMusic's local Room database (`PlaylistSongCrossRef`) with asynchronous non-blocking queries.
+* **Modern Material 3 Import UI (`ImportSyncScreen.kt`)**:
+  * Provides live import progress tracking, item-by-item resolution status, and one-tap import history.
+
+---
+
+## 14. Pluggable Multi-Model AI Orchestrator & Live Model Discovery
+
+### 🎯 Overview
+PixelMusic's AI lyrics translation and musical intelligence suite now features an open, pluggable architecture (`AiOrchestrator.kt`, `AiClientFactory.kt`). Users are no longer restricted to a single hardcoded LLM; they can connect to Google Gemini, OpenRouter, Qwen, DeepSeek, or any custom OpenAI-compatible endpoint with real-time model discovery and custom prompt tuning.
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                    AI PROVIDER ADAPTER                     │
+├────────────────────────────────────────────────────────────┤
+│ [ User / UI ] ──► [ AiOrchestrator ]                       │
+│                          │                                 │
+│         ┌────────────────┼────────────────┐                │
+│         ▼                ▼                ▼                │
+│  [Gemini API]     [OpenRouter API]  [Generic OpenAI API]   │
+│  • Flash 2.0/1.5  • DeepSeek R1/V3  • Custom Local LLM     │
+│  • Live Discovery • Qwen 2.5        • LM Studio / Ollama   │
+│         │                │                │                │
+│         └────────────────┼────────────────┘                │
+│                          ▼                                 │
+│  Structured Line-by-Line Lyrics Translation & Caching      │
+└────────────────────────────────────────────────────────────┘
+```
+
+### ⚙️ How It Works Under the Hood
+* **Dynamic Model Discovery (`GeminiModelService.kt`)**:
+  * Automatically queries provider model discovery endpoints (`/models`) to fetch available models in real time when an API key is entered.
+  * Filters and categorizes models suitable for text translation and generative tasks, saving the user from manually typing model identifiers.
+* **OpenAI-Compatible Generic Client (`GenericOpenAiClient.kt`)**:
+  * Supports custom Base URLs, enabling direct integration with self-hosted models (LM Studio, Ollama, vLLM) as well as cloud providers (OpenRouter, DeepSeek, Groq, Mistral).
+  * Implements standardized Chat Completion payloads (`temperature`, `max_tokens`, `messages`).
+* **Persistent AI Preferences (`AiPreferencesRepository.kt`)**:
+  * Persists selected provider, model ID, API keys, custom temperature, and translation target language using Android Jetpack DataStore.
+* **Line-by-Line Translation Caching (`LyricsTranslator.kt`)**:
+  * Employs delimited indexing prompts that preserve line-to-line alignment between original lyrics and translated lines.
+  * Caches translated lyrics locally in Room DB so subsequent playback of the same song incurs zero AI latency and zero API token cost.
 

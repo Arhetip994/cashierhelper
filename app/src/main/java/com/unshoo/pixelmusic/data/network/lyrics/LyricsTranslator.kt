@@ -90,7 +90,10 @@ class LyricsTranslator @Inject constructor(
     private suspend fun translateBatch(lines: List<String>, targetLang: String): List<String> {
         if (lines.isEmpty()) return emptyList()
 
-        if (aiPreferencesRepository?.hasConfiguredKey() == true && aiOrchestratorLazy != null) {
+        val hasAi = aiPreferencesRepository?.hasConfiguredKey() == true
+        Log.d(TAG, "translateBatch: hasAiConfigured=$hasAi, orchestratorPresent=${aiOrchestratorLazy != null}")
+
+        if (hasAi && aiOrchestratorLazy != null) {
             val aiResult = translateWithAi(lines, targetLang)
             if (aiResult != null && aiResult.isNotEmpty()) {
                 Log.d(TAG, "Lyrics successfully translated with AI")
@@ -135,39 +138,64 @@ class LyricsTranslator @Inject constructor(
                 else -> targetLang
             }
 
-            val prompt = """
-                Translate the following song lyrics lines into $targetLangName.
-                Requirements:
-                1. Make the translation artistic, poetic, emotionally evocative, and natural for song lyrics.
-                2. Preserve the exact line structure: the input has lines separated by " <br> ".
-                3. You MUST output each translated line separated by the exact same delimiter " <br> ".
-                4. Do NOT output notes, introduction, markdown blocks, or greetings.
-                
-                Lines to translate:
-                ${nonBlankLines.joinToString(DELIMITER)}
-            """.trimIndent()
-
             val orchestrator = aiOrchestratorLazy?.get() ?: return null
-            val raw = orchestrator.generateContent(
-                prompt = prompt,
-                type = AiSystemPromptType.LYRICS_TRANSLATION,
-                temperature = 0.3f
-            )
+            val translatedMap = mutableMapOf<Int, String>()
+            val chunkSize = 20
 
-            if (raw.isBlank()) return null
+            for (i in nonBlankLines.indices step chunkSize) {
+                val chunkLines = nonBlankLines.subList(i, minOf(i + chunkSize, nonBlankLines.size))
+                val chunkIndices = nonBlankIndices.subList(i, minOf(i + chunkSize, nonBlankIndices.size))
 
-            val parts = raw
-                .replace("(?i)<br\\s*/?>".toRegex(), "~~~BR~~~")
-                .split("~~~BR~~~")
-                .map { it.trim().trim('"', '`', '\'') }
+                val prompt = """
+                    Translate the following song lyrics into $targetLangName.
+                    Requirements:
+                    1. Make the translation artistic, poetic, emotionally evocative, and natural for song lyrics.
+                    2. Preserve the exact line structure: the input has lines separated by " <br> ".
+                    3. Output each translated line separated by " <br> " (or on a new line).
+                    4. Output EXACTLY ${chunkLines.size} translated lines. Do NOT add commentary, notes, or code blocks.
+                    
+                    Lines to translate:
+                    ${chunkLines.joinToString(DELIMITER)}
+                """.trimIndent()
 
-            if (parts.size >= (nonBlankLines.size * 0.75).toInt()) {
-                val translatedMap = mutableMapOf<Int, String>()
-                for (j in nonBlankLines.indices) {
-                    val origIdx = nonBlankIndices[j]
-                    val tr = parts.getOrNull(j)?.takeIf { it.isNotBlank() } ?: nonBlankLines[j]
+                val raw = orchestrator.generateContent(
+                    prompt = prompt,
+                    type = AiSystemPromptType.LYRICS_TRANSLATION,
+                    temperature = 0.3f
+                )
+
+                if (raw.isBlank()) continue
+
+                val cleanedRaw = raw
+                    .replace(Regex("""```[a-zA-Z]*\n?"""), "")
+                    .replace("```", "")
+                    .trim()
+
+                // Check for <br> delimiter first
+                var parts = cleanedRaw
+                    .replace("(?i)<br\\s*/?>".toRegex(), "~~~BR~~~")
+                    .split("~~~BR~~~")
+                    .map { it.trim().trim('"', '`', '\'') }
+                    .filter { it.isNotBlank() }
+
+                // Fallback to newline split if <br> was ignored by LLM
+                if (parts.size < (chunkLines.size * 0.6).toInt()) {
+                    val lineParts = cleanedRaw.lines()
+                        .map { it.trim().trim('"', '`', '\'').removePrefix("- ").removePrefix("* ") }
+                        .filter { it.isNotBlank() && !it.startsWith("Translation", ignoreCase = true) }
+                    if (lineParts.size >= (chunkLines.size * 0.6).toInt()) {
+                        parts = lineParts
+                    }
+                }
+
+                for (j in chunkLines.indices) {
+                    val origIdx = chunkIndices[j]
+                    val tr = parts.getOrNull(j)?.takeIf { it.isNotBlank() } ?: chunkLines[j]
                     translatedMap[origIdx] = tr
                 }
+            }
+
+            if (translatedMap.isNotEmpty()) {
                 lines.mapIndexed { index, orig ->
                     translatedMap[index] ?: orig
                 }
@@ -175,7 +203,7 @@ class LyricsTranslator @Inject constructor(
                 null
             }
         } catch (e: Exception) {
-            Log.w(TAG, "AI lyrics translation error, falling back to Google: ${e.message}")
+            Log.e(TAG, "AI lyrics translation error, falling back to Google: ${e.message}", e)
             null
         }
     }

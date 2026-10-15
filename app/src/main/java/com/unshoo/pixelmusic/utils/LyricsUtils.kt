@@ -741,12 +741,40 @@ object LyricsUtils {
     private val KUGOU_LINE_REGEX = Pattern.compile("^\\[(\\d+),(\\d+)](.*)$")
     private val KUGOU_WORD_PATTERN = Pattern.compile("<(\\d+),(\\d+),(\\d+)>([^<]*)")
 
+    fun cleanLyricBrackets(raw: String): String {
+        var text = raw.trim()
+        val pairs = listOf(
+            "(" to ")",
+            "[" to "]",
+            "（" to "）",
+            "【" to "】",
+            "〔" to "〕",
+            "《" to "》"
+        )
+        var changed = true
+        while (changed) {
+            changed = false
+            for ((open, close) in pairs) {
+                if (text.startsWith(open) && text.endsWith(close) && text.length >= open.length + close.length) {
+                    text = text.substring(open.length, text.length - close.length).trim()
+                    changed = true
+                }
+            }
+        }
+        return text
+    }
+
+    private val WHOLE_LINE_BRACKET_PATTERN = Regex("""^\s*[\(\[（【〔《](.+?)(?:[\)\]）】〕》]|\s*)$""")
+    private val INLINE_BRACKET_PATTERN = Regex("""[\(\[（【〔《]([^\)\]）】〕》]+)(?:[\)\]）】〕》]|$)""")
+
     /**
      * Parses a String containing lyrics in LRC or plain-text format.
      * @param lyricsText The raw lyrics text to process.
      * @return A [Lyrics] object with either the 'plain' or 'synced' list populated.
      */
-    fun parseLyrics(lyricsText: String?): Lyrics {
+    fun parseLyrics(lyricsText: String?): Lyrics = parseSyncLyrics(lyricsText)
+
+    fun parseSyncLyrics(lyricsText: String?): Lyrics {
         if (lyricsText.isNullOrEmpty()) {
             return Lyrics(plain = emptyList(), synced = emptyList())
         }
@@ -780,8 +808,16 @@ object LyricsUtils {
                 val minutes = lineMatcher.group(1)?.toLong() ?: 0
                 val seconds = lineMatcher.group(2)?.toLong() ?: 0
                 val fraction = lineMatcher.group(3)?.toLong() ?: 0
-                val textWithTags = stripFormatCharacters(lineMatcher.group(4)?.trim() ?: "")
+                val rawTextWithTags = stripFormatCharacters(lineMatcher.group(4)?.trim() ?: "")
+                var isBackground = rawTextWithTags.contains("{bg}")
+                val agent = Regex("\\{agent:([^}]+)\\}").find(rawTextWithTags)?.groupValues?.get(1)
+                val textWithTags = rawTextWithTags.replace("{bg}", "").replace(Regex("\\{agent:[^}]+\\}"), "").trim()
                 val text = stripLrcTimestamps(textWithTags)
+
+                val isWholeLineBracket = WHOLE_LINE_BRACKET_PATTERN.matches(text.trim())
+                if (isWholeLineBracket) {
+                    isBackground = true
+                }
 
                 val millis = if (lineMatcher.group(3)?.length == 2) fraction * 10 else fraction
                 val lineTimestamp = minutes * 60 * 1000 + seconds * 1000 + millis
@@ -790,7 +826,7 @@ object LyricsUtils {
                 if (text.contains(LRC_WORD_TAG_REGEX)) {
                     val words = mutableListOf<SyncedWord>()
                     val parts = text.split(LRC_WORD_SPLIT_REGEX)
-                    val displayText = LRC_WORD_TAG_REGEX.replace(text, "")
+                    val rawDisplayText = LRC_WORD_TAG_REGEX.replace(text, "")
                     var pendingWordBoundary = false
 
                     for (part in parts) {
@@ -823,9 +859,6 @@ object LyricsUtils {
                                 )
                             }
                         } else {
-                            // Preserve only leading untagged text as a timed word.
-                            // Trailing untagged chunks (e.g. inline translations) should remain visible in line text
-                            // but must not steal word highlight timing.
                             if (words.isEmpty()) {
                                 val leading = stripFormatCharacters(part)
                                 val startsNewWord = pendingWordBoundary || leading.firstOrNull()?.isWhitespace() == true
@@ -846,16 +879,91 @@ object LyricsUtils {
                         }
                     }
 
-                    if (words.isNotEmpty()) {
-                        syncedLines.add(SyncedLine(lineTimestamp.toInt(), displayText, words))
+                    if (!isBackground && !isWholeLineBracket && INLINE_BRACKET_PATTERN.containsMatchIn(rawDisplayText)) {
+                        val leadText = INLINE_BRACKET_PATTERN.replace(rawDisplayText, " ").replace(Regex("""\s+"""), " ").trim()
+                        val backingText = INLINE_BRACKET_PATTERN.findAll(rawDisplayText)
+                            .map { it.groupValues[1].trim() }
+                            .filter { it.isNotEmpty() }
+                            .joinToString(" ")
+                            .trim()
+
+                        if (leadText.isNotEmpty() && backingText.isNotEmpty()) {
+                            val leadWords = mutableListOf<SyncedWord>()
+                            val backingWords = mutableListOf<SyncedWord>()
+                            var inBracket = false
+                            for (w in words) {
+                                val rawW = w.word
+                                if (rawW.any { it in "([（【〔《" }) inBracket = true
+                                val cleanW = rawW.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "").trim()
+                                if (cleanW.isNotEmpty()) {
+                                    val copyW = w.copy(word = cleanW)
+                                    if (inBracket) backingWords.add(copyW) else leadWords.add(copyW)
+                                }
+                                if (rawW.any { it in ")]）】〕》" }) inBracket = false
+                            }
+                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), leadText, if (leadWords.isNotEmpty()) leadWords else null, isBackground = false, agent = agent))
+                            val backingTime = backingWords.firstOrNull()?.time ?: lineTimestamp.toInt()
+                            syncedLines.add(SyncedLine(backingTime, backingText, if (backingWords.isNotEmpty()) backingWords else null, isBackground = true, agent = agent))
+                        } else {
+                            val cleanDisplayText = cleanLyricBrackets(WHOLE_LINE_BRACKET_PATTERN.matchEntire(rawDisplayText.trim())?.groupValues?.get(1)?.trim() ?: rawDisplayText)
+                            val cleanWords = words.map { w ->
+                                w.copy(word = w.word.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "").trim())
+                            }.filter { it.word.isNotEmpty() }
+                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), cleanDisplayText, if (cleanWords.isNotEmpty()) cleanWords else null, isBackground = isBackground || isWholeLineBracket, agent = agent))
+                        }
                     } else {
-                        syncedLines.add(SyncedLine(lineTimestamp.toInt(), displayText))
+                        val cleanDisplayText = cleanLyricBrackets(WHOLE_LINE_BRACKET_PATTERN.matchEntire(rawDisplayText.trim())?.groupValues?.get(1)?.trim() ?: rawDisplayText)
+                        val cleanWords = words.map { w ->
+                            w.copy(word = w.word.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "").trim())
+                        }.filter { it.word.isNotEmpty() }
+                        syncedLines.add(SyncedLine(lineTimestamp.toInt(), cleanDisplayText, if (cleanWords.isNotEmpty()) cleanWords else null, isBackground = isBackground || isWholeLineBracket, agent = agent))
                     }
                 } else {
-                    syncedLines.add(SyncedLine(lineTimestamp.toInt(), text))
+                    // Standard line without word tags
+                    if (!isBackground && !isWholeLineBracket && INLINE_BRACKET_PATTERN.containsMatchIn(text)) {
+                        val leadText = INLINE_BRACKET_PATTERN.replace(text, " ").replace(Regex("""\s+"""), " ").trim()
+                        val backingText = INLINE_BRACKET_PATTERN.findAll(text)
+                            .map { it.groupValues[1].trim() }
+                            .filter { it.isNotEmpty() }
+                            .joinToString(" ")
+                            .trim()
+
+                        if (leadText.isNotEmpty() && backingText.isNotEmpty()) {
+                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), leadText, isBackground = false, agent = agent))
+                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), backingText, isBackground = true, agent = agent))
+                        } else {
+                            val cleanText = cleanLyricBrackets(WHOLE_LINE_BRACKET_PATTERN.matchEntire(text.trim())?.groupValues?.get(1)?.trim() ?: text)
+                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), cleanText, isBackground = isBackground || isWholeLineBracket, agent = agent))
+                        }
+                    } else {
+                        val cleanText = cleanLyricBrackets(WHOLE_LINE_BRACKET_PATTERN.matchEntire(text.trim())?.groupValues?.get(1)?.trim() ?: text)
+                        syncedLines.add(SyncedLine(lineTimestamp.toInt(), cleanText, isBackground = isBackground || isWholeLineBracket, agent = agent))
+                    }
                 }
             } else {
                 // Line WITHOUT timestamp
+                val trimmedLine = line.trim()
+                if (isSynced && syncedLines.isNotEmpty() && trimmedLine.startsWith("<") && trimmedLine.endsWith(">") && trimmedLine.contains(":")) {
+                    val rawWordsData = trimmedLine.removeSurrounding("<", ">")
+                    val parsedWords = runCatching {
+                        rawWordsData.split("|").mapNotNull { part ->
+                            val segments = part.split(":")
+                            if (segments.size >= 3) {
+                                val wordText = segments[0]
+                                val startSec = segments[1].toDoubleOrNull() ?: return@mapNotNull null
+                                val startMs = (startSec * 1000).toInt()
+                                SyncedWord(time = startMs, word = wordText, startsNewWord = true)
+                            } else null
+                        }
+                    }.getOrNull()
+
+                    if (!parsedWords.isNullOrEmpty()) {
+                        val last = syncedLines.removeAt(syncedLines.lastIndex)
+                        syncedLines.add(last.copy(words = parsedWords))
+                        return@forEach
+                    }
+                }
+
                 val stripped = stripLrcTimestamps(stripFormatCharacters(line))
                 // If the file was already detected as synced and at least one SyncedLine
                 // exists, treat this line as a continuation of the previous one.
@@ -869,9 +977,9 @@ object LyricsUtils {
                     }
                     // Preserve the existing synced word list if present.
                     val merged = if (last.words?.isNotEmpty() == true) {
-                        SyncedLine(last.time, mergedLineText, last.words)
+                        SyncedLine(last.time, mergedLineText, last.words, isBackground = last.isBackground, agent = last.agent)
                     } else {
-                        SyncedLine(last.time, mergedLineText)
+                        SyncedLine(last.time, mergedLineText, isBackground = last.isBackground, agent = last.agent)
                     }
 
                     syncedLines.add(merged)
@@ -883,6 +991,20 @@ object LyricsUtils {
         }
 
         return if (isSynced && syncedLines.isNotEmpty()) {
+            // Post-process line-synced background lines that share lineTimestamp with their lead line
+            for (i in 0 until syncedLines.size) {
+                val current = syncedLines[i]
+                if (current.isBackground && current.words.isNullOrEmpty() && i > 0) {
+                    val prev = syncedLines[i - 1]
+                    if (!prev.isBackground && prev.time == current.time) {
+                        val nextLeadTime = syncedLines.subList(i + 1, syncedLines.size).firstOrNull { !it.isBackground }?.time
+                            ?: (prev.time + 4000)
+                        val duration = (nextLeadTime - prev.time).coerceAtLeast(1000)
+                        val offset = (duration * 0.60).toInt().coerceIn(600, (duration - 300).coerceAtLeast(600))
+                        syncedLines[i] = current.copy(time = prev.time + offset)
+                    }
+                }
+            }
             val sortedSyncedLines = syncedLines.sortedBy { it.time }
             val pairedLines = pairTranslationLines(sortedSyncedLines).map { line ->
 
@@ -1033,7 +1155,7 @@ object LyricsUtils {
         while (i < lines.size) {
             val current = lines[i]
             val next = lines.getOrNull(i + 1)
-            if (next != null && next.time == current.time && current.translation == null && current.line.isNotBlank() && next.line.isNotBlank()) {
+            if (next != null && next.time == current.time && !current.isBackground && !next.isBackground && current.translation == null && current.line.isNotBlank() && next.line.isNotBlank()) {
                 val translationParts = mutableListOf(next.line)
                 var consumed = 2
                 while (true) {

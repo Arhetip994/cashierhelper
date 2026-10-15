@@ -6257,7 +6257,8 @@ class PlayerViewModel @Inject constructor(
                 scheme == "navidrome" ||
                 scheme == "jellyfin" ||
                 scheme == "gdrive" ||
-                scheme == "youtube"
+                scheme == "youtube" ||
+                scheme == "monochrome"
             ) {
                 if (scheme == "telegram") {
                     ensureTelegramPlaybackObserversStarted()

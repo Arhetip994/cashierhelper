@@ -23,6 +23,8 @@ import com.unshoo.pixelmusic.data.remote.youtube.YouTubeItemFilter
 import com.unshoo.pixelmusic.data.repository.YouTubeLibraryPersistenceManager
 import com.unshoo.pixelmusic.data.model.youtube.PlaylistInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
+import timber.log.Timber
+import com.unshoo.pixelmusic.data.importer.UniversalPlaylistImporter
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -114,6 +116,7 @@ class PlaylistViewModel @Inject constructor(
     private val musicDao: MusicDao,
     private val datastoreRepository: DatastoreRepository,
     private val persistenceManager: YouTubeLibraryPersistenceManager,
+    private val universalPlaylistImporter: UniversalPlaylistImporter,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -122,6 +125,72 @@ class PlaylistViewModel @Inject constructor(
 
     private val _importProgress = MutableStateFlow(ImportProgressState())
     val importProgress: StateFlow<ImportProgressState> = _importProgress.asStateFlow()
+
+    fun importExternalPlaylist(
+        url: String,
+        onProgress: (Int, Int) -> Unit = { _, _ -> },
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                _importProgress.value = ImportProgressState(isImporting = true)
+                val parsed = universalPlaylistImporter.fetch(url)
+                _importProgress.value = ImportProgressState(
+                    isImporting = true,
+                    playlistName = parsed.title,
+                    totalTracks = parsed.tracks.size,
+                    importType = parsed.source
+                )
+                val playlistId = universalPlaylistImporter.importToLibrary(context, parsed) { curr, total ->
+                    _importProgress.value = _importProgress.value.copy(currentTrackIndex = curr, totalTracks = total)
+                    onProgress(curr, total)
+                }
+                _importProgress.value = ImportProgressState(isImporting = false)
+                onSuccess(playlistId)
+            } catch (e: Exception) {
+                Timber.e(e, "Error importing external playlist")
+                _importProgress.value = ImportProgressState(isImporting = false)
+                onError(e.message ?: "Ошибка импорта плейлиста")
+            }
+        }
+    }
+
+    fun importCsvContent(
+        content: String,
+        fallbackTitle: String = "Импортированный плейлист",
+        onProgress: (Int, Int) -> Unit = { _, _ -> },
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                _importProgress.value = ImportProgressState(isImporting = true, playlistName = fallbackTitle)
+                val parsed = universalPlaylistImporter.parseCsv(content, fallbackTitle)
+                if (parsed.tracks.isEmpty()) {
+                    _importProgress.value = ImportProgressState(isImporting = false)
+                    onError("В CSV файле не найдено подходящих треков")
+                    return@launch
+                }
+                _importProgress.value = ImportProgressState(
+                    isImporting = true,
+                    playlistName = parsed.title,
+                    totalTracks = parsed.tracks.size,
+                    importType = "CSV"
+                )
+                val playlistId = universalPlaylistImporter.importToLibrary(context, parsed) { curr, total ->
+                    _importProgress.value = _importProgress.value.copy(currentTrackIndex = curr, totalTracks = total)
+                    onProgress(curr, total)
+                }
+                _importProgress.value = ImportProgressState(isImporting = false)
+                onSuccess(playlistId)
+            } catch (e: Exception) {
+                Timber.e(e, "Error importing CSV")
+                _importProgress.value = ImportProgressState(isImporting = false)
+                onError(e.message ?: "Ошибка импорта CSV")
+            }
+        }
+    }
 
     private val _syncingPlaylists = MutableStateFlow<Set<String>>(emptySet())
     val syncingPlaylists: StateFlow<Set<String>> = _syncingPlaylists.asStateFlow()

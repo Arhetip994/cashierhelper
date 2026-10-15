@@ -22,6 +22,7 @@ class MultiSourceLyricsEngine @Inject constructor(
     private val lrcLibApiService: LrcLibApiService,
     private val deezerLyricsProvider: DeezerLyricsProvider,
     private val paxsenixLyricsProvider: PaxsenixLyricsProvider,
+    private val betterLyricsProvider: BetterLyricsProvider,
     private val netEaseLyricsProvider: NetEaseLyricsProvider,
     private val kugouLyricsProvider: KugouLyricsProvider
 ) {
@@ -52,7 +53,7 @@ class MultiSourceLyricsEngine @Inject constructor(
         // Line-synced base score
         var score = 50 + synced.size.coerceAtMost(40)
 
-        // Syllable / word-by-word synced bonus (Apple Music / Paxsenix / Kugou word format)
+        // Syllable / word-by-word synced bonus (Apple Music / Paxsenix / BetterLyrics word format)
         val hasWordTimings = synced.any { !it.words.isNullOrEmpty() }
         if (hasWordTimings) {
             score += 50
@@ -60,7 +61,7 @@ class MultiSourceLyricsEngine @Inject constructor(
 
         // Provider trustworthiness bonus
         when (sourceName.lowercase()) {
-            "applemusic", "paxsenix" -> score += 20
+            "betterlyrics", "applemusic", "paxsenix" -> score += 25
             "deezer" -> score += 15
             "lrclib" -> score += 10
             "netease" -> score += 5
@@ -170,6 +171,21 @@ class MultiSourceLyricsEngine @Inject constructor(
                         val parsed = LyricsUtils.parseLyrics(rawKugou).copy(areFromRemote = true)
                         if (!parsed.synced.isNullOrEmpty()) {
                             channel.send(Triple("Kugou", parsed, rawKugou))
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        )
+
+        // 6. BetterLyrics job (Apple Music TTML / word-level)
+        searchJobs.add(
+            launch(Dispatchers.IO) {
+                try {
+                    val rawBetter = betterLyricsProvider.getLyrics(cleanTitle, cleanArtist, durationSeconds, song.album)
+                    if (!rawBetter.isNullOrBlank()) {
+                        val parsed = LyricsUtils.parseLyrics(rawBetter).copy(areFromRemote = true)
+                        if (!parsed.synced.isNullOrEmpty() || !parsed.plain.isNullOrEmpty()) {
+                            channel.send(Triple("BetterLyrics", parsed, rawBetter))
                         }
                     }
                 } catch (_: Exception) {}

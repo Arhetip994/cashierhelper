@@ -41,6 +41,7 @@ import com.unshoo.pixelmusic.data.lossless.constants.AppleMusicMediaUserTokenKey
 import com.unshoo.pixelmusic.data.lossless.constants.AppleMusicSourceEnabledKey
 import com.unshoo.pixelmusic.data.lossless.constants.AudioSourceOrderKey
 import com.unshoo.pixelmusic.data.lossless.constants.AudioSourceType
+import com.unshoo.pixelmusic.data.lossless.constants.MonochromeEnabledKey
 import com.unshoo.pixelmusic.data.lossless.constants.DeezerArlKey
 import com.unshoo.pixelmusic.data.lossless.constants.PoolApiKeyKey
 import com.unshoo.pixelmusic.data.lossless.constants.DeezerAudioQuality
@@ -300,6 +301,7 @@ object LosslessStreamResolver {
             .filter { it.isNotEmpty() }
 
     private class SourceSettings(
+        val monochromeEnabled: Boolean,
         val tidalEnabled: Boolean,
         val qobuzEnabled: Boolean,
         val deezerEnabled: Boolean,
@@ -319,6 +321,7 @@ object LosslessStreamResolver {
     private suspend fun readSettings(context: Context): SourceSettings {
         val p = prefs(context)
         return SourceSettings(
+            monochromeEnabled = p[MonochromeEnabledKey] ?: true,
             tidalEnabled = p[TidalEnabledKey] ?: true,
             qobuzEnabled = p[QobuzEnabledKey] ?: false,
             deezerEnabled = p[DeezerEnabledKey] ?: false,
@@ -344,6 +347,7 @@ object LosslessStreamResolver {
     private fun resolutionChain(s: SourceSettings): List<AudioSourceType> {
         val enabledDefaults =
             mapOf(
+                AudioSourceType.MONOCHROME to s.monochromeEnabled,
                 AudioSourceType.TIDAL to s.tidalEnabled,
                 AudioSourceType.QOBUZ to s.qobuzEnabled,
                 AudioSourceType.QOBUZ_BACKUP to false,
@@ -362,6 +366,7 @@ object LosslessStreamResolver {
     private fun isSourceEnabled(source: AudioSourceType, s: SourceSettings): Boolean =
         when (source) {
             AudioSourceType.YOUTUBE -> true
+            AudioSourceType.MONOCHROME -> s.monochromeEnabled
             AudioSourceType.TIDAL -> s.tidalEnabled
             AudioSourceType.QOBUZ -> s.qobuzEnabled
             AudioSourceType.DEEZER -> s.deezerEnabled
@@ -490,6 +495,7 @@ object LosslessStreamResolver {
             Timber.tag(TAG).d("Trying source: %s for \"%s\"", source.name, request.title)
             val stream: DirectStream? =
                 when (source) {
+                    AudioSourceType.MONOCHROME -> resolveMonochromeStream(request, settings)
                     AudioSourceType.TIDAL -> resolveTidalStream(context, request, settings)
                     AudioSourceType.QOBUZ -> resolveQobuzStream(request, settings)
                     AudioSourceType.DEEZER -> resolveDeezerStream(request, settings)
@@ -1117,6 +1123,81 @@ object LosslessStreamResolver {
         val millis = durationMs?.takeIf { it > 0L } ?: return null
         val bitsPerSecond = bytes * 8_000L / millis
         return bitsPerSecond.takeIf { it in 1L..50_000_000L }?.toInt()
+    }
+
+    private fun resolveMonochromeStream(request: Request, settings: SourceSettings): DirectStream? {
+        if (!settings.monochromeEnabled) return null
+        return try {
+            val query = if (request.artists.isNotEmpty()) {
+                "${request.artists.first()} ${request.title}"
+            } else {
+                request.title
+            }
+            val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+            val url = "https://tracks.monochrome.st/search/tracks?q=$encodedQuery&limit=5"
+            val req = okhttp3.Request.Builder()
+                .url(url)
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                )
+                .build()
+            val resp = httpClient.newCall(req).execute()
+            if (!resp.isSuccessful) return null
+            val body = resp.body?.string().orEmpty()
+            if (body.isBlank()) return null
+            val json = org.json.JSONObject(body)
+            val tracks = json.optJSONArray("tracks") ?: return null
+
+            var bestStream: DirectStream? = null
+            var bestScore = 0.0
+
+            for (i in 0 until tracks.length()) {
+                val item = tracks.optJSONObject(i) ?: continue
+                if (item.optBoolean("playable", true) == false) continue
+                val trackId = item.optString("id").ifBlank { item.optString("trackId") }
+                if (trackId.isBlank()) continue
+                val title = item.optString("title")
+                val artistNamesArray = item.optJSONArray("artistNames")
+                val artists = mutableListOf<String>()
+                if (artistNamesArray != null) {
+                    for (a in 0 until artistNamesArray.length()) {
+                        artists.add(artistNamesArray.optString(a))
+                    }
+                }
+                val durationMs = item.optLong("duration", 0L)
+                val effectiveDuration = if (durationMs > 10_000L) durationMs else durationMs * 1000L
+                val candidateStream = DirectStream(
+                    uri = "https://tracks.monochrome.st/track/$trackId",
+                    mimeType = androidx.media3.common.MimeTypes.AUDIO_FLAC,
+                    codecs = "flac",
+                    contentLength = null,
+                    label = "Monochrome FLAC (Free)",
+                    source = AudioSourceType.MONOCHROME,
+                    matchedTitle = title,
+                    matchedArtist = artists.firstOrNull(),
+                    matchedAlbum = item.optString("albumTitle").ifBlank { null },
+                    matchedDurationMs = effectiveDuration,
+                    sampleRate = 44100,
+                    bitDepth = 16
+                )
+                val match = TitleMatch.evaluate(
+                    wantedTitle = request.title,
+                    wantedArtists = request.artists,
+                    wantedAlbum = request.album,
+                    wantedDurationMs = request.durationMs,
+                    stream = candidateStream
+                )
+                if (match.accepted && match.score > bestScore) {
+                    bestScore = match.score
+                    bestStream = candidateStream
+                }
+            }
+            bestStream
+        } catch (e: Exception) {
+            Timber.tag(TAG).w(e, "Monochrome stream resolve failed for %s", request.title)
+            null
+        }
     }
 
     private fun sourceCacheKey(

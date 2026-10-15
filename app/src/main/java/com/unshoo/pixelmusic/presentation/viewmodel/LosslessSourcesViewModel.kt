@@ -19,6 +19,7 @@ import com.unshoo.pixelmusic.data.lossless.constants.AppleMusicQualityKey
 import com.unshoo.pixelmusic.data.lossless.constants.AppleMusicSourceEnabledKey
 import com.unshoo.pixelmusic.data.lossless.constants.AudioSourceOrderKey
 import com.unshoo.pixelmusic.data.lossless.constants.AudioSourceType
+import com.unshoo.pixelmusic.data.lossless.constants.MonochromeEnabledKey
 import com.unshoo.pixelmusic.data.lossless.constants.DeezerAccountNameKey
 import com.unshoo.pixelmusic.data.lossless.constants.DeezerAccountPremiumKey
 import com.unshoo.pixelmusic.data.lossless.constants.DeezerArlKey
@@ -80,7 +81,9 @@ data class LosslessSourcesUiState(
     val poolBuildTimeKeyPresent: Boolean = com.unshoo.pixelmusic.BuildConfig.SOURCE_PROVIDER_KEY.isNotBlank(),
     val poolEffectiveBaseUrl: String = com.unshoo.pixelmusic.BuildConfig.SOURCE_PROVIDER_URL,
     val sourceOrder: List<AudioSourceType> =
-        listOf(AudioSourceType.TIDAL, AudioSourceType.QOBUZ, AudioSourceType.DEEZER, AudioSourceType.APPLE),
+        listOf(AudioSourceType.MONOCHROME, AudioSourceType.TIDAL, AudioSourceType.QOBUZ, AudioSourceType.DEEZER, AudioSourceType.APPLE),
+    // Monochrome
+    val monochromeEnabled: Boolean = true,
     // Tidal
     val tidalEnabled: Boolean = true,
     val tidalQuality: TidalAudioQuality = TidalAudioQuality.FLAC,
@@ -127,7 +130,13 @@ class LosslessSourcesViewModel @Inject constructor(
 ) : ViewModel() {
 
     private companion object {
-        val LOSSLESS_TYPES = setOf(AudioSourceType.TIDAL, AudioSourceType.QOBUZ, AudioSourceType.DEEZER, AudioSourceType.APPLE)
+        val LOSSLESS_TYPES = setOf(
+            AudioSourceType.MONOCHROME,
+            AudioSourceType.TIDAL,
+            AudioSourceType.QOBUZ,
+            AudioSourceType.DEEZER,
+            AudioSourceType.APPLE
+        )
     }
 
     val uiState: StateFlow<LosslessSourcesUiState> =
@@ -139,6 +148,7 @@ class LosslessSourcesViewModel @Inject constructor(
                     poolBaseUrl = p[PoolBaseUrlKey].orEmpty(),
                     poolEffectiveBaseUrl = PoolAccountManager.baseUrlOrNull.orEmpty(),
                     sourceOrder = AudioSourceConfig.parseOrder(p[AudioSourceOrderKey]?.ifBlank { null }).filter { it in LOSSLESS_TYPES },
+                    monochromeEnabled = p[MonochromeEnabledKey] ?: true,
                     tidalEnabled = p[TidalEnabledKey] ?: true,
                     tidalQuality = enumOrDefault(p[TidalAudioQualityKey], TidalAudioQuality.FLAC),
                     tidalAccountFirst = p[TidalAccountFirstKey] ?: true,
@@ -302,6 +312,13 @@ class LosslessSourcesViewModel @Inject constructor(
     fun clearResolvedCache() {
         LosslessStreamResolver.clearAll()
         _lastMessage.value = "Cleared resolved lossless streams"
+    }
+
+    // ── Monochrome ────────────────────────────────────────────────────────────────────────────
+
+    fun setMonochromeEnabled(enabled: Boolean) {
+        set(MonochromeEnabledKey, enabled)
+        LosslessStreamResolver.clearAll()
     }
 
     // ── Tidal ─────────────────────────────────────────────────────────────────────────────────

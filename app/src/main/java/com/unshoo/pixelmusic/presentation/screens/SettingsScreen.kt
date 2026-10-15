@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -226,7 +227,7 @@ fun SettingsScreen(
                         it != SettingsCategory.LOSSLESS_SOURCES
                     }
 
-                    val totalItems = mainCategories.size + 4 // Device + Accounts + Downloads + About
+                    val totalItems = mainCategories.size + 5 // Device + Accounts + ImportSync + Downloads + About
                     fun shapeFor(index: Int) =
                         when {
                             totalItems == 1 -> RoundedCornerShape(24.dp)
@@ -278,6 +279,21 @@ fun SettingsScreen(
                         colors = getAccountsColors(isDark),
                         onClick = {
                             navController.navigateSafely(Screen.Accounts.route)
+                        },
+                        shape = shapeFor(itemIndex)
+                    )
+                    if (itemIndex < totalItems - 1) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                    }
+                    itemIndex++
+
+                    ExpressiveNavigationItem(
+                        title = stringResource(R.string.import_sync_nav_title),
+                        subtitle = stringResource(R.string.import_sync_nav_subtitle),
+                        icon = Icons.Rounded.SwapHoriz,
+                        colors = getImportSyncColors(isDark),
+                        onClick = {
+                            navController.navigateSafely(Screen.ImportSync.route)
                         },
                         shape = shapeFor(itemIndex)
                     )
@@ -661,6 +677,14 @@ private fun getDownloadsColors(isDark: Boolean): Pair<Color, Color> {
         Color(0xFF2E4D40) to Color(0xFFA8DFC5)
     } else {
         Color(0xFFD0EEDF) to Color(0xFF0E3827)
+    }
+}
+
+private fun getImportSyncColors(isDark: Boolean): Pair<Color, Color> {
+    return if (isDark) {
+        Color(0xFF3F2B4C) to Color(0xFFE2C4F5)
+    } else {
+        Color(0xFFF3E2FB) to Color(0xFF3A124F)
     }
 }
 

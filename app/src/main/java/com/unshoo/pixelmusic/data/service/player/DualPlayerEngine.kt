@@ -110,7 +110,7 @@ class DualPlayerEngine @Inject constructor(
         private const val HTTP_READ_TIMEOUT_MS = 5_000
         private const val FIRST_CHUNK_PRECACHE_BYTES = 256L * 1024L // 256KB — enough for instant start
         private val LOCAL_MEDIA_SCHEMES = setOf("content", "file", "android.resource")
-        private val REMOTE_MEDIA_SCHEMES = setOf("http", "https", "telegram", "gdrive", "youtube")
+        private val REMOTE_MEDIA_SCHEMES = setOf("http", "https", "telegram", "gdrive", "youtube", "monochrome")
     }
 
     data class TransitionTarget(
@@ -533,8 +533,8 @@ class DualPlayerEngine @Inject constructor(
     private val preCacheHttpFactory by lazy {
         DefaultHttpDataSource.Factory()
             .setUserAgent(
-                "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
             )
             .setConnectTimeoutMs(HTTP_CONNECT_TIMEOUT_MS)
             .setReadTimeoutMs(HTTP_READ_TIMEOUT_MS)
@@ -975,7 +975,7 @@ class DualPlayerEngine @Inject constructor(
                 // Only resolve custom schemes that cannot be loaded natively by ExoPlayer.
                 // CRITICAL: Never call runBlocking here. ExoPlayer load threads can stall the
                 // MediaSession/UI binder path and freeze the miniplayer when song cards are tapped.
-                if (scheme == "telegram" || scheme == "gdrive" || scheme == "youtube") {
+                if (scheme == "telegram" || scheme == "gdrive" || scheme == "youtube" || scheme == "monochrome") {
                     val originalUri = uri.toString()
                     val diskUri = resolveLocalDiskFile(originalUri)
                     if (diskUri != null) {
@@ -1042,8 +1042,8 @@ class DualPlayerEngine @Inject constructor(
         // Explicit HTTP timeouts for low-connectivity resilience.
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(
-                "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
             )
             .setConnectTimeoutMs(HTTP_CONNECT_TIMEOUT_MS)
             .setReadTimeoutMs(HTTP_READ_TIMEOUT_MS)
@@ -1263,6 +1263,10 @@ class DualPlayerEngine @Inject constructor(
                             "telegram" -> resolveTelegramUriAsync(uri, uriString)
                             "gdrive" -> resolveGDriveUriAsync(uriString)
                             "youtube" -> resolveYoutubeUriAsync(uriString)
+                            "monochrome" -> {
+                                val trackId = uriString.substringAfter("monochrome://")
+                                Uri.parse("https://tracks.monochrome.st/track/$trackId")
+                            }
                             else -> null
                         }
                     }
@@ -1403,7 +1407,8 @@ class DualPlayerEngine @Inject constructor(
             // must not be registered in the local-file caches (they expire / get evicted).
             if (LosslessSchemeRoutingDataSource.isCustomLosslessScheme(path) ||
                 path.startsWith("file:") ||
-                path.startsWith("apple-pending:")
+                path.startsWith("apple-pending:") ||
+                path.contains("monochrome.st/track/")
             ) {
                 return@withContext Uri.parse(path)
             }
@@ -1460,6 +1465,8 @@ class DualPlayerEngine @Inject constructor(
             if (cachedMime != null) {
                 builder.setMimeType(cachedMime)
             }
+        } else if (scheme == "monochrome" || resolvedUri.toString().contains("monochrome.st/track/")) {
+            builder.setMimeType(androidx.media3.common.MimeTypes.AUDIO_FLAC)
         }
         return builder.build()
     }

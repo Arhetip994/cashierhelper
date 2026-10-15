@@ -282,4 +282,47 @@
     <string name="lyrics_translation_language_desc">Language for karaoke and lyrics translation</string>
     <string name="lyrics_translation_ai_active">✨ Poetic translation via AI (%1$s)</string>
     <string name="lyrics_translation_google_active">Using Google Translate (for AI, add API key in Settings → AI Integration)</string>
+
+    <!-- Import & Sync / Transfer -->
+    <string name="import_sync_nav_title">Import &amp; Transfer Songs</string>
+    <string name="import_sync_nav_subtitle">Yandex Music, Spotify, Apple Music, Deezer, CSV</string>
+    <string name="import_sync_title">Import &amp; Transfer</string>
+    <string name="import_sync_hero_title">Sync &amp; Transfer</string>
+    <string name="import_sync_hero_subtitle">Music from all your players in one place</string>
+    <string name="import_sync_hero_desc">Transfer tracks from Yandex Music, Spotify, Apple Music, Deezer, and YouTube without losing order or playlists.</string>
+    <string name="import_link_card_title">Import from link</string>
+    <string name="import_link_card_subtitle">Paste a link to a playlist or album</string>
+    <string name="import_link_placeholder">Paste playlist or album link…</string>
+    <string name="import_paste_button">Paste</string>
+    <string name="import_detected_prefix">Detected: %s</string>
+    <string name="import_btn_start">Import to library</string>
+    <string name="import_btn_loading">Importing…</string>
+    <string name="import_csv_card_title">CSV File (TuneMyMusic / Soundiiz)</string>
+    <string name="import_csv_card_subtitle">Import from backup or service export file</string>
+    <string name="import_csv_pick_button">File</string>
+    <string name="import_supported_platforms_title">Supported Platforms</string>
+    <string name="import_yandex_music">Yandex Music</string>
+    <string name="import_yandex_subtitle">Public playlists and albums</string>
+    <string name="import_spotify">Spotify</string>
+    <string name="import_spotify_subtitle">Playlists and albums</string>
+    <string name="import_apple_music">Apple Music</string>
+    <string name="import_apple_subtitle">Playlists and albums</string>
+    <string name="import_deezer">Deezer</string>
+    <string name="import_deezer_subtitle">Any length playlists and albums</string>
+    <string name="import_youtube_music">YouTube Music</string>
+    <string name="import_youtube_subtitle">Playlists and collections</string>
+    <string name="import_how_it_works_title">How does it work?</string>
+    <string name="import_how_it_works_desc">• Open the music app (Yandex Music, Spotify, etc.), tap «Share» on a playlist or album, and copy the link.\n• Paste the link here — the app automatically matches tracks with high audio quality.\n• To transfer an entire library, use CSV export via TuneMyMusic or Soundiiz.</string>
+    <string name="import_status_fetching">Fetching playlist information…</string>
+    <string name="import_status_reading_csv">Reading CSV file…</string>
+    <string name="import_status_progress">Importing tracks: %1$d / %2$d</string>
+    <string name="import_status_progress_imported">Imported %1$d of %2$d tracks</string>
+    <string name="import_status_matching">Searching and matching tracks…</string>
+    <string name="import_status_success">Playlist successfully imported!</string>
+    <string name="import_open_button">Open</string>
+    <string name="import_dialog_full_screen_btn">Transfer screen &amp; CSV</string>
+    <string name="import_dialog_title">Import Playlist</string>
+    <string name="import_link_label">Link</string>
+    <string name="import_file_error">Failed to read file</string>
+    <string name="import_finished_toast">Import completed!</string>
 </resources>

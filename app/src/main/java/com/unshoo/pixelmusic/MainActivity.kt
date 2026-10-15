@@ -63,6 +63,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import com.unshoo.pixelmusic.data.remote.youtube.toNativeSong
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -649,6 +650,34 @@ class MainActivity : ComponentActivity() {
                 val foundAlbums = musicRepository.searchAlbums(targetQuery).first()
                 if (foundAlbums.isNotEmpty()) {
                     playerViewModel.playAlbum(foundAlbums.first())
+                    playerViewModel.showPlayer()
+                    return@launch
+                }
+
+                // If not found in local library, search YouTube Music online
+                val remoteSongs: List<com.unshoo.pixelmusic.data.model.Song>? = runCatching {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        val result = unshoo.ianshulyadav.pixelmusic.innertube.YouTube.search(
+                            targetQuery,
+                            unshoo.ianshulyadav.pixelmusic.innertube.YouTube.SearchFilter.FILTER_SONG
+                        ).getOrNull()
+                        val songItems = result?.items?.filterIsInstance<unshoo.ianshulyadav.pixelmusic.innertube.models.SongItem>()
+                        songItems?.map { it.toNativeSong() }
+                    }
+                }.getOrNull()
+
+                if (!remoteSongs.isNullOrEmpty()) {
+                    val startSong = if (!artist.isNullOrBlank()) {
+                        remoteSongs.firstOrNull { it.displayArtist.contains(artist, ignoreCase = true) }
+                            ?: remoteSongs.first()
+                    } else {
+                        remoteSongs.first()
+                    }
+                    playerViewModel.playSongs(
+                        songsToPlay = remoteSongs,
+                        startSong = startSong,
+                        queueName = targetQuery
+                    )
                     playerViewModel.showPlayer()
                     return@launch
                 }

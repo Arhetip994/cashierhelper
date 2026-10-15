@@ -277,6 +277,9 @@ fun AppNavigation(
                         },
                         onOpenLastfmSettings = {
                             navController.navigateSafely(Screen.SettingsCategory.createRoute("lastfm"))
+                        },
+                        onOpenImportSync = {
+                            navController.navigateSafely(Screen.ImportSync.route)
                         }
                     )
                 }
@@ -743,6 +746,22 @@ fun AppNavigation(
                     com.unshoo.pixelmusic.presentation.screens.CloudDownloadsScreen(
                         navController = navController,
                         playerViewModel = playerViewModel
+                    )
+                }
+            }
+
+            composable(
+                Screen.ImportSync.route,
+                enterTransition = { enterTransition() },
+                exitTransition = { exitTransition() },
+                popEnterTransition = { popEnterTransition() },
+                popExitTransition = { popExitTransition() },
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel) {
+                    com.unshoo.pixelmusic.presentation.screens.ImportSyncScreen(
+                        navController = navController,
+                        playlistViewModel = hiltViewModel(),
+                        onBackClick = { navController.popBackStack() }
                     )
                 }
             }

@@ -287,6 +287,14 @@ class SettingsViewModel @Inject constructor(
         .flatMapLatest { provider -> aiPreferencesRepository.getApiKey(AiProvider.fromString(provider)) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    val currentAiEndpoint: StateFlow<String> = aiProvider
+        .flatMapLatest { provider -> aiPreferencesRepository.getEndpoint(AiProvider.fromString(provider)) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    val currentAiChatEndpoint: StateFlow<String> = aiProvider
+        .flatMapLatest { provider -> aiPreferencesRepository.getChatEndpoint(AiProvider.fromString(provider)) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "/chat/completions")
+
     val currentAiModel: StateFlow<String> = aiProvider
         .flatMapLatest { provider -> aiPreferencesRepository.getModel(AiProvider.fromString(provider)) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
@@ -434,10 +442,42 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun onAiEndpointChange(endpoint: String) {
+        viewModelScope.launch {
+            val provider = AiProvider.fromString(aiProvider.value)
+            aiPreferencesRepository.setEndpoint(provider, endpoint.trim())
+            val key = currentAiApiKey.value
+            if (key.isNotBlank() || !provider.requiresApiKey) {
+                fetchAvailableModels(key.ifBlank { "dummy" }, provider.name)
+            }
+        }
+    }
+
+    fun resetAiEndpoint() {
+        viewModelScope.launch {
+            val provider = AiProvider.fromString(aiProvider.value)
+            aiPreferencesRepository.setEndpoint(provider, aiPreferencesRepository.getDefaultEndpoint(provider))
+        }
+    }
+
+    fun onAiChatEndpointChange(endpoint: String) {
+        viewModelScope.launch {
+            val provider = AiProvider.fromString(aiProvider.value)
+            aiPreferencesRepository.setChatEndpoint(provider, endpoint.trim())
+        }
+    }
+
+    fun resetAiChatEndpoint() {
+        viewModelScope.launch {
+            val provider = AiProvider.fromString(aiProvider.value)
+            aiPreferencesRepository.resetChatEndpoint(provider)
+        }
+    }
+
     fun onAiModelChange(model: String) {
         viewModelScope.launch {
             val provider = AiProvider.fromString(aiProvider.value)
-            aiPreferencesRepository.setModel(provider, model)
+            aiPreferencesRepository.setModel(provider, model.trim())
         }
     }
 
@@ -1670,10 +1710,7 @@ fun setBeta05CleanInstallDisclaimerDismissed(dismissed: Boolean) {
             
             val provider = aiProvider.value
             val apiKey = aiPreferencesRepository.getApiKey(AiProvider.fromString(provider)).first()
-            
-            if (apiKey.isNotBlank()) {
-                fetchAvailableModels(apiKey, provider)
-            }
+            fetchAvailableModels(apiKey, provider)
         }
     }
 
@@ -1694,8 +1731,13 @@ fun setBeta05CleanInstallDisclaimerDismissed(dismissed: Boolean) {
             _uiState.update { it.copy(isLoadingModels = true, modelsFetchError = null) }
             try {
                 val provider = AiProvider.fromString(providerName)
-                val aiClient = aiClientFactory.createClient(provider, apiKey)
-                val modelStrings = aiClient.getAvailableModels(apiKey)
+                val modelStrings = if (provider.requiresApiKey && apiKey.isBlank()) {
+                    getDefaultModelsForProvider(provider)
+                } else {
+                    val aiClient = aiClientFactory.createClient(provider, apiKey)
+                    val fetched = aiClient.getAvailableModels(apiKey)
+                    fetched.ifEmpty { getDefaultModelsForProvider(provider) }
+                }
                 val models = modelStrings
                     .map { it.trim() }
                     .filter { it.isNotBlank() }
@@ -1718,19 +1760,57 @@ fun setBeta05CleanInstallDisclaimerDismissed(dismissed: Boolean) {
                     aiPreferencesRepository.setModel(provider, firstModel)
                 }
             } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        isLoadingModels = false,
-                        modelsFetchError = e.message ?: context.getString(R.string.models_fetch_failed),
-                    )
+                val provider = AiProvider.fromString(providerName)
+                val defaultModels = getDefaultModelsForProvider(provider).map {
+                    com.unshoo.pixelmusic.data.ai.GeminiModel(it, formatModelDisplayName(it))
+                }
+                if (defaultModels.isNotEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            availableModels = defaultModels,
+                            isLoadingModels = false,
+                            modelsFetchError = null
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isLoadingModels = false,
+                            modelsFetchError = e.message ?: context.getString(R.string.models_fetch_failed),
+                        )
+                    }
                 }
             }
+        }
+    }
+
+    private fun getDefaultModelsForProvider(provider: AiProvider): List<String> {
+        return when (provider) {
+            AiProvider.GEMINI -> listOf(
+                "gemini-2.5-flash-lite",
+                "gemini-2.5-pro",
+                "gemini-3.1-flash-lite",
+                "gemini-3.1-pro",
+                "gemini-3.5-flash-lite",
+                "gemini-3.6-flash",
+                "gemini-3.8-flash",
+                "gemma-3-27b",
+                "gemma-4-26b",
+                "gemma-4-31b"
+            )
+            AiProvider.DEEPSEEK -> listOf("deepseek-chat", "deepseek-reasoner", "deepseek-v3.2", "deepseek-v4-flash")
+            AiProvider.GROQ -> listOf("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768")
+            AiProvider.MISTRAL -> listOf("mistral-large-latest", "mistral-small-latest", "codestral-latest")
+            AiProvider.OPENAI -> listOf("gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-5-mini")
+            else -> emptyList()
         }
     }
 
     private fun formatModelDisplayName(modelName: String): String {
         return modelName
             .removePrefix("models/")
+            .removePrefix("provider-2/")
+            .removePrefix("provider-4/")
             .replace('-', ' ')
             .replace('_', ' ')
             .split(' ')

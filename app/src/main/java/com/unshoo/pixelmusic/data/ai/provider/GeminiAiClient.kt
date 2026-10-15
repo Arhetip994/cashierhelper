@@ -18,7 +18,7 @@ import java.net.URLEncoder
 class GeminiAiClient(private val apiKey: String) : AiClient {
 
     companion object {
-        private const val DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview"
+        private const val DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
         private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
     }
 
@@ -205,12 +205,15 @@ class GeminiAiClient(private val apiKey: String) : AiClient {
         model.trim().removePrefix("models/").ifBlank { DEFAULT_GEMINI_MODEL }
 
     private fun getDefaultModels(): List<String> = listOf(
-        "gemini-3-flash-preview",
-        "gemini-3.1-pro-preview",
-        "gemini-3.1-flash-lite-preview",
-        "gemini-flash-latest",
-        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
         "gemini-2.5-pro",
-        "gemini-2.0-flash"
+        "gemini-3.1-flash-lite",
+        "gemini-3.1-pro",
+        "gemini-3.5-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3.8-flash",
+        "gemma-3-27b",
+        "gemma-4-26b",
+        "gemma-4-31b"
     )
 }

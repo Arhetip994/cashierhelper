@@ -17,7 +17,8 @@ class GenericOpenAiClient(
     private val apiKey: String,
     private val baseUrl: String,
     private val defaultModelId: String,
-    private val providerName: String = "OpenAI"
+    private val providerName: String = "OpenAI",
+    private val chatEndpoint: String = "/chat/completions"
 ) : AiClient {
     
     @Serializable
@@ -76,10 +77,28 @@ class GenericOpenAiClient(
             val jsonBody = json.encodeToString(ChatRequest.serializer(), requestBody)
             val body = jsonBody.toRequestBody("application/json".toMediaType())
             
+            val cleanBase = baseUrl.trim().trimEnd('/')
+            val cleanEndpoint = chatEndpoint.trim()
+            val resolvedUrl = when {
+                cleanEndpoint.startsWith("http://") || cleanEndpoint.startsWith("https://") -> cleanEndpoint
+                cleanBase.endsWith("/chat/completions") || cleanBase.endsWith("/completions") -> cleanBase
+                cleanBase.endsWith("/v1") && (cleanEndpoint.startsWith("/v1/") || cleanEndpoint.startsWith("v1/")) -> {
+                    cleanBase + "/" + cleanEndpoint.trimStart('/').removePrefix("v1/")
+                }
+                cleanEndpoint.isNotBlank() -> "$cleanBase/${cleanEndpoint.trimStart('/')}"
+                else -> "$cleanBase/chat/completions"
+            }
+
+            android.util.Log.d("GenericOpenAiClient", "[$providerName] POST $resolvedUrl (model: $resolvedModel)")
+
             val requestBuilder = Request.Builder()
-                .url("${baseUrl.trimEnd('/')}/chat/completions")
-                .addHeader("Authorization", "Bearer $apiKey")
+                .url(resolvedUrl)
                 .addHeader("Content-Type", "application/json")
+                .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) PixelMusic/1.0")
+            
+            if (apiKey.isNotBlank() && !apiKey.equals("dummy", ignoreCase = true) && !apiKey.equals("dummy-key", ignoreCase = true)) {
+                requestBuilder.addHeader("Authorization", "Bearer $apiKey")
+            }
             
             if (providerName.equals("OpenRouter", ignoreCase = true)) {
                 requestBuilder.addHeader("HTTP-Referer", "https://github.com/ianshulyadav/PixelMusic")
@@ -93,6 +112,7 @@ class GenericOpenAiClient(
                     val responseBody = response.body.string()
 
                     if (!response.isSuccessful) {
+                        android.util.Log.e("GenericOpenAiClient", "[$providerName] HTTP ${response.code} error: $responseBody")
                         throw AiProviderSupport.createException(
                             providerName = providerName,
                             statusCode = response.code,
@@ -113,6 +133,7 @@ class GenericOpenAiClient(
                         )
                 }
             } catch (e: Exception) {
+                android.util.Log.e("GenericOpenAiClient", "[$providerName] Request failed: ${e.message}", e)
                 throw AiProviderSupport.wrapThrowable(providerName, e, resolvedModel)
             }
         }
@@ -123,14 +144,30 @@ class GenericOpenAiClient(
         return (systemPrompt.length + prompt.length) / 4
     }
     
+    private fun resolveModelsUrl(): String {
+        val cleanBase = baseUrl.trim().trimEnd('/')
+        val cleanEndpoint = chatEndpoint.trim()
+        return when {
+            cleanBase.endsWith("/chat/completions") -> cleanBase.removeSuffix("/chat/completions") + "/models"
+            cleanBase.endsWith("/completions") -> cleanBase.removeSuffix("/completions") + "/models"
+            cleanBase.endsWith("/v1") -> "$cleanBase/models"
+            cleanEndpoint.startsWith("/v1") || cleanEndpoint.startsWith("v1") -> "$cleanBase/v1/models"
+            else -> "$cleanBase/models"
+        }
+    }
+
     override suspend fun getAvailableModels(apiKey: String): List<String> {
         return withContext(Dispatchers.IO) {
             try {
-                val request = Request.Builder()
-                    .url("${baseUrl.trimEnd('/')}/models")
-                    .addHeader("Authorization", "Bearer $apiKey")
+                val modelsUrl = resolveModelsUrl()
+                val requestBuilder = Request.Builder()
+                    .url(modelsUrl)
+                    .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) PixelMusic/1.0")
                     .get()
-                    .build()
+                if (apiKey.isNotBlank() && !apiKey.equals("dummy", ignoreCase = true) && !apiKey.equals("dummy-key", ignoreCase = true)) {
+                    requestBuilder.addHeader("Authorization", "Bearer $apiKey")
+                }
+                val request = requestBuilder.build()
                 
                 val response = client.newCall(request).execute()
                 
@@ -140,11 +177,45 @@ class GenericOpenAiClient(
                 
                 val responseBody = response.body.string()
                 val modelsResponse = json.decodeFromString<ModelsResponse>(responseBody)
-                modelsResponse.data.map { it.id }.filter { 
+                val allRaw = modelsResponse.data.map { it.id }.filter { 
                     !it.contains("whisper") && !it.contains("embed") && !it.contains("tts")
                 }
+                if (providerName.contains("Gemini", ignoreCase = true)) {
+                    val geminiOnly = allRaw.filter { it.contains("gemini", ignoreCase = true) || it.contains("gemma", ignoreCase = true) }
+                    geminiOnly.ifEmpty {
+                        listOf(
+                            "gemini-2.5-flash-lite",
+                            "gemini-2.5-pro",
+                            "gemini-3.1-flash-lite",
+                            "gemini-3.1-pro",
+                            "gemini-3.5-flash-lite",
+                            "gemini-3.6-flash",
+                            "gemini-3.8-flash",
+                            "gemma-3-27b",
+                            "gemma-4-26b",
+                            "gemma-4-31b"
+                        )
+                    }
+                } else {
+                    allRaw.ifEmpty { listOf(defaultModelId) }
+                }
             } catch (e: Exception) {
-                listOf(defaultModelId)
+                if (providerName.contains("Gemini", ignoreCase = true)) {
+                    listOf(
+                        "gemini-2.5-flash-lite",
+                        "gemini-2.5-pro",
+                        "gemini-3.1-flash-lite",
+                        "gemini-3.1-pro",
+                        "gemini-3.5-flash-lite",
+                        "gemini-3.6-flash",
+                        "gemini-3.8-flash",
+                        "gemma-3-27b",
+                        "gemma-4-26b",
+                        "gemma-4-31b"
+                    )
+                } else {
+                    listOf(defaultModelId)
+                }
             }
         }
     }
@@ -152,9 +223,9 @@ class GenericOpenAiClient(
     override suspend fun validateApiKey(apiKey: String): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                // Try a simple models list check as validation
                 val request = Request.Builder()
-                    .url("${baseUrl.trimEnd('/')}/models")
+                    .url(resolveModelsUrl())
+                    .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) PixelMusic/1.0")
                     .addHeader("Authorization", "Bearer $apiKey")
                     .get()
                     .build()

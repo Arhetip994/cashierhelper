@@ -52,12 +52,20 @@ class AiOrchestrator @Inject constructor(
         return preferencesRepo.getApiKey(provider).first()
     }
 
+    private suspend fun getEndpoint(provider: AiProvider): String {
+        return preferencesRepo.getEndpoint(provider).first()
+    }
+
     private suspend fun getModel(provider: AiProvider): String {
         return preferencesRepo.getModel(provider).first()
     }
 
     private suspend fun setModel(provider: AiProvider, model: String) {
         preferencesRepo.setModel(provider, model)
+    }
+
+    private suspend fun getChatEndpoint(provider: AiProvider): String {
+        return preferencesRepo.getChatEndpoint(provider).first()
     }
 
     private suspend fun generateWithRecovery(
@@ -67,7 +75,9 @@ class AiOrchestrator @Inject constructor(
         prompt: String,
         temperature: Float
     ): String {
-        val client = clientFactory.createClient(provider, apiKey)
+        val endpoint = getEndpoint(provider)
+        val chatEndpoint = getChatEndpoint(provider)
+        val client = clientFactory.createClient(provider, apiKey, endpoint, chatEndpoint)
         val requestedModel = getModel(provider).ifBlank { client.getDefaultModel() }
 
         return try {
@@ -192,7 +202,7 @@ class AiOrchestrator @Inject constructor(
 
             try {
                 val apiKey = getApiKey(provider)
-                if (apiKey.isBlank()) {
+                if (provider.requiresApiKey && apiKey.isBlank()) {
                     failedProviders.add("${provider.name}: no API key configured")
                     continue
                 }
@@ -247,9 +257,11 @@ class AiOrchestrator @Inject constructor(
                 val failure = com.unshoo.pixelmusic.data.ai.provider.AiProviderSupport.wrapThrowable(provider.displayName, e)
                 Timber.tag("AiOrchestrator").w(e, "Provider ${provider.name} failed: ${failure.message}")
                 failedProviders.add("${provider.name}: ${failure.message ?: "Unknown error"}")
-                // Trigger cooldown only on provider-level outages and account problems.
-                if (failure.shouldCooldown()) {
+                // Trigger cooldown only on persistent account outages; transient errors get a short 5-second backoff
+                if (failure.isBillingIssue() || failure.isApiKeyIssue()) {
                     providerCooldowns[provider] = now + COOLDOWN_DURATION_MS
+                } else if (failure.shouldCooldown()) {
+                    providerCooldowns[provider] = now + 5_000L
                 }
             }
         }

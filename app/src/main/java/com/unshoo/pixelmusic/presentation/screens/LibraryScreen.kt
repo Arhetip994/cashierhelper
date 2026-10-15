@@ -169,6 +169,7 @@ import com.unshoo.pixelmusic.presentation.components.MultiSelectionBottomSheet
 import com.unshoo.pixelmusic.presentation.components.AlbumMultiSelectionOptionSheet
 import com.unshoo.pixelmusic.presentation.components.PlaylistMultiSelectionBottomSheet
 import com.unshoo.pixelmusic.presentation.components.PlaylistCreationTypeDialog
+import com.unshoo.pixelmusic.presentation.components.ImportPlaylistDialog
 import com.unshoo.pixelmusic.presentation.components.CreateAiPlaylistDialog
 import com.unshoo.pixelmusic.presentation.components.subcomps.SelectionActionRow
 import com.unshoo.pixelmusic.presentation.components.subcomps.SelectionCountPill
@@ -530,6 +531,7 @@ fun LibraryScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var showPlaylistCreationTypeDialog by remember { mutableStateOf(false) }
     var showCreateAiPlaylistDialog by remember { mutableStateOf(false) }
+    var showImportPlaylistDialog by remember { mutableStateOf(false) }
     var aiGenerationRequestedFromDialog by remember { mutableStateOf(false) }
 
     var pendingImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -1883,6 +1885,10 @@ fun LibraryScreen(
             showPlaylistCreationTypeDialog = false
             showCreatePlaylistDialog = true
         },
+        onImportSelected = {
+            showPlaylistCreationTypeDialog = false
+            showImportPlaylistDialog = true
+        },
         onAiSelected = {
             if (hasActiveAiProviderApiKey) {
                 showPlaylistCreationTypeDialog = false
@@ -1896,6 +1902,13 @@ fun LibraryScreen(
         onSetupAiClick = {
             navController.navigateSafely(Screen.SettingsCategory.createRoute("ai"))
         }
+    )
+
+    ImportPlaylistDialog(
+        visible = showImportPlaylistDialog,
+        onDismiss = { showImportPlaylistDialog = false },
+        playlistViewModel = playlistViewModel,
+        onOpenFullImport = { navController.navigateSafely(Screen.ImportSync.route) }
     )
 
     CreatePlaylistDialog(

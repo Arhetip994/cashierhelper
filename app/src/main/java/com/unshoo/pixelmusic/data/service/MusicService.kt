@@ -1246,7 +1246,10 @@ class MusicService : MediaLibraryService() {
 
     private fun shouldRejectWearController(controller: MediaSession.ControllerInfo): Boolean {
         val controllerPackage = controller.packageName
-        if (controllerPackage.startsWith(APP_PACKAGE_PREFIX)) {
+        if (controllerPackage.startsWith(APP_PACKAGE_PREFIX) ||
+            controllerPackage == "com.google.android.googlequicksearchbox" ||
+            controllerPackage == "com.google.android.gms" ||
+            controllerPackage == "com.google.android.apps.googleassistant") {
             return false
         }
         val blockedByPackage = BLOCKED_WEAR_CONTROLLER_PREFIXES.any { prefix ->

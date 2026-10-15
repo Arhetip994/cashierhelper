@@ -816,6 +816,155 @@ fun AiApiKeyItem(
 }
 
 @Composable
+fun AiEndpointItem(
+    endpoint: String,
+    onEndpointSave: (String) -> Unit,
+    onReset: () -> Unit,
+    title: String,
+    subtitle: String
+) {
+    var localEndpoint by remember(endpoint) { mutableStateOf(endpoint) }
+    val hasChanges = localEndpoint != endpoint
+    var showSaved by remember { mutableStateOf(false) }
+
+    LaunchedEffect(showSaved) {
+        if (showSaved) {
+            kotlinx.coroutines.delay(2000)
+            showSaved = false
+        }
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = getSettingsCardBorder(),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = localEndpoint,
+                onValueChange = { localEndpoint = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("https://api.openai.com/v1") },
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilledTonalButton(
+                    onClick = {
+                        onEndpointSave(localEndpoint)
+                        showSaved = true
+                    },
+                    enabled = hasChanges
+                ) {
+                    Text(stringResource(R.string.presentation_batch_f_save), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                OutlinedButton(
+                    onClick = {
+                        onReset()
+                        showSaved = true
+                    }
+                ) {
+                    Text("Reset", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (showSaved) {
+                    Text(
+                        text = stringResource(R.string.presentation_batch_f_saved),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AiModelManualItem(
+    currentModel: String,
+    onModelSave: (String) -> Unit,
+    title: String,
+    subtitle: String
+) {
+    var localModel by remember(currentModel) { mutableStateOf(currentModel) }
+    val hasChanges = localModel != currentModel
+    var showSaved by remember { mutableStateOf(false) }
+
+    LaunchedEffect(showSaved) {
+        if (showSaved) {
+            kotlinx.coroutines.delay(2000)
+            showSaved = false
+        }
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = getSettingsCardBorder(),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = localModel,
+                onValueChange = { localModel = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("e.g. gpt-4o-mini, deepseek-chat, llama3.2") },
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilledTonalButton(
+                    onClick = {
+                        onModelSave(localModel)
+                        showSaved = true
+                    },
+                    enabled = hasChanges
+                ) {
+                    Text(stringResource(R.string.presentation_batch_f_save), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (showSaved) {
+                    Text(
+                        text = stringResource(R.string.presentation_batch_f_saved),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun AiSystemPromptItem(
     systemPrompt: String,
     defaultPrompt: String,

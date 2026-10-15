@@ -47,7 +47,8 @@ import kotlinx.coroutines.flow.first
 class SearchStateHolder @Inject constructor(
     @param:dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val userPreferencesRepository: UserPreferencesRepository,
-    private val musicRepository: MusicRepository
+    private val musicRepository: MusicRepository,
+    private val monochromeClient: com.unshoo.pixelmusic.data.remote.monochrome.MonochromeClient
 ) {
     companion object {
         const val SEARCH_DEBOUNCE_MS = 150L
@@ -279,10 +280,12 @@ class SearchStateHolder @Inject constructor(
         when (filter) {
             SearchFilterType.ALL -> coroutineScope {
                 val songsDeferred = async { YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrNull() }
+                val monochromeDeferred = async { monochromeClient.searchTracks(query, limit = 8) }
                 val artistsDeferred = async { YouTube.search(query, YouTube.SearchFilter.FILTER_ARTIST).getOrNull() }
                 val albumsDeferred = async { YouTube.search(query, YouTube.SearchFilter.FILTER_ALBUM).getOrNull() }
                 val playlistsDeferred = async { YouTube.search(query, YouTube.SearchFilter.FILTER_FEATURED_PLAYLIST).getOrNull() }
 
+                val monochromeSongs = try { monochromeDeferred.await() } catch (_: Exception) { emptyList() }
                 val songsResult = songsDeferred.await()
                 val artistsResult = artistsDeferred.await()
                 val albumsResult = albumsDeferred.await()
@@ -292,6 +295,9 @@ class SearchStateHolder @Inject constructor(
 
                 val topSongs = mutableListOf<SearchResultItem>()
                 val mixedItems = mutableListOf<SearchResultItem>()
+
+                // Add Monochrome lossless tracks to top results
+                monochromeSongs.forEach { topSongs.add(SearchResultItem.SongItem(it)) }
 
                 val songsList = songsResult?.items?.filterIsInstance<SongItem>()?.filterVideo(pureYtMusicOnly).orEmpty()
                 val artistsList = artistsResult?.items?.filterIsInstance<ArtistItem>().orEmpty()
@@ -350,9 +356,13 @@ class SearchStateHolder @Inject constructor(
                     items.addAll(mixedItems)
                 }
             }
-            SearchFilterType.SONGS -> {
-                val result = YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrNull()
+            SearchFilterType.SONGS -> coroutineScope {
+                val songsDeferred = async { YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrNull() }
+                val monochromeDeferred = async { monochromeClient.searchTracks(query, limit = 15) }
+                val monochromeSongs = try { monochromeDeferred.await() } catch (_: Exception) { emptyList() }
+                val result = songsDeferred.await()
                 lastContinuationToken = result?.continuation
+                monochromeSongs.forEach { items.add(SearchResultItem.SongItem(it)) }
                 result?.items?.filterIsInstance<SongItem>()?.filterVideo(pureYtMusicOnly)?.forEach { items.add(SearchResultItem.SongItem(it.toNativeSong())) }
             }
             SearchFilterType.ARTISTS -> {

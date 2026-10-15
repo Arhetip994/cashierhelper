@@ -279,4 +279,47 @@
     <string name="lyrics_translation_language_desc">Язык для караоке и перевода текста песен</string>
     <string name="lyrics_translation_ai_active">✨ Поэтичный перевод через ИИ (%1$s)</string>
     <string name="lyrics_translation_google_active">Используется Google Translate (для ИИ укажите API ключ в Настройки → Интеграция с ИИ)</string>
+
+    <!-- Import & Sync / Transfer -->
+    <string name="import_sync_nav_title">Импорт и перенос треков</string>
+    <string name="import_sync_nav_subtitle">Яндекс Музыка, Spotify, Apple Music, Deezer, CSV</string>
+    <string name="import_sync_title">Импорт и перенос</string>
+    <string name="import_sync_hero_title">Синхронизация и перенос</string>
+    <string name="import_sync_hero_subtitle">Музыка из всех ваших плееров в одном месте</string>
+    <string name="import_sync_hero_desc">Переносите треки из Яндекс Музыки, Spotify, Apple Music, Deezer и YouTube без потери порядка и плейлистов.</string>
+    <string name="import_link_card_title">Импорт по ссылке</string>
+    <string name="import_link_card_subtitle">Вставьте ссылку на плейлист или альбом</string>
+    <string name="import_link_placeholder">Вставьте ссылку на плейлист или альбом…</string>
+    <string name="import_paste_button">Вставить</string>
+    <string name="import_detected_prefix">Определен: %s</string>
+    <string name="import_btn_start">Импортировать в медиатеку</string>
+    <string name="import_btn_loading">Импортирование…</string>
+    <string name="import_csv_card_title">Файл CSV (TuneMyMusic / Soundiiz)</string>
+    <string name="import_csv_card_subtitle">Импорт из бэкапа или файла экспорта</string>
+    <string name="import_csv_pick_button">Файл</string>
+    <string name="import_supported_platforms_title">Поддерживаемые платформы</string>
+    <string name="import_yandex_music">Яндекс Музыка</string>
+    <string name="import_yandex_subtitle">Публичные плейлисты и альбомы</string>
+    <string name="import_spotify">Spotify</string>
+    <string name="import_spotify_subtitle">Плейлисты и альбомы</string>
+    <string name="import_apple_music">Apple Music</string>
+    <string name="import_apple_subtitle">Плейлисты и альбомы</string>
+    <string name="import_deezer">Deezer</string>
+    <string name="import_deezer_subtitle">Плейлисты и альбомы любой длины</string>
+    <string name="import_youtube_music">YouTube Music</string>
+    <string name="import_youtube_subtitle">Плейлисты и подборки</string>
+    <string name="import_how_it_works_title">Как это работает?</string>
+    <string name="import_how_it_works_desc">• Откройте нужное приложение (Яндекс Музыка, Spotify и др.), нажмите «Поделиться» у плейлиста или альбома и скопируйте ссылку.\n• Вставьте ссылку сюда — приложение автоматически распознает названия и исполнителей треков и добавит их в вашу медиатеку с высоким качеством звучания.\n• Для переноса всей библиотеки используйте экспорт в CSV через TuneMyMusic или Soundiiz.</string>
+    <string name="import_status_fetching">Загрузка информации о плейлисте…</string>
+    <string name="import_status_reading_csv">Чтение CSV файла…</string>
+    <string name="import_status_progress">Импорт треков: %1$d / %2$d</string>
+    <string name="import_status_progress_imported">Импортировано %1$d из %2$d треков</string>
+    <string name="import_status_matching">Поиск и сопоставление треков…</string>
+    <string name="import_status_success">Плейлист успешно импортирован!</string>
+    <string name="import_open_button">Открыть</string>
+    <string name="import_dialog_full_screen_btn">Экран переноса и CSV</string>
+    <string name="import_dialog_title">Импорт плейлиста</string>
+    <string name="import_link_label">Ссылка</string>
+    <string name="import_file_error">Ошибка чтения файла</string>
+    <string name="import_finished_toast">Импорт завершен!</string>
 </resources>

@@ -12,6 +12,28 @@ import org.xml.sax.InputSource
 internal object TtmlLyricsParser {
     private const val MAX_TTML_PARAGRAPHS = 5_000
 
+    data class ParsedLine(
+        val text: String,
+        val startTimeMs: Int,
+        val words: List<ParsedWord>,
+        val agent: String? = null,
+        val isBackground: Boolean = false,
+        val backgroundLines: List<ParsedLine> = emptyList()
+    )
+
+    data class ParsedWord(
+        val text: String,
+        val startTimeMs: Int,
+        val endTimeMs: Int
+    )
+
+    private data class SpanInfo(
+        val text: String,
+        val startTimeMs: Int,
+        val endTimeMs: Int,
+        val hasTrailingSpace: Boolean
+    )
+
     fun parseToEnhancedLrc(ttmlText: String): String? {
         return runCatching {
             val normalizedTtml = normalizeTtmlDocument(ttmlText)
@@ -40,18 +62,292 @@ internal object TtmlLyricsParser {
                 return null
             }
 
-            buildList<Pair<Int, String>> {
-                for (index in 0 until paragraphNodes.length) {
-                    val paragraph = paragraphNodes.item(index) as? Element ?: continue
-                    val beginMs = resolveParagraphStartMs(paragraph) ?: continue
-                    val serializedBody = normalizeParagraphBody(serializeChildren(paragraph))
-                    if (serializedBody.isBlank()) continue
-                    add(beginMs to "[${formatLrcTimestamp(beginMs)}]$serializedBody")
+            val parsedLines = mutableListOf<ParsedLine>()
+
+            for (index in 0 until paragraphNodes.length) {
+                val paragraph = paragraphNodes.item(index) as? Element ?: continue
+                val beginMs = resolveParagraphStartMs(paragraph) ?: continue
+                val agent = getAttributeByLocalName(paragraph, "agent").ifEmpty { null }
+
+                val spanInfos = mutableListOf<SpanInfo>()
+                val backgroundLines = mutableListOf<ParsedLine>()
+
+                val childNodes = paragraph.childNodes
+                for (j in 0 until childNodes.length) {
+                    val node = childNodes.item(j)
+                    if (node.nodeType == Node.ELEMENT_NODE) {
+                        val span = node as? Element
+                        if (span != null && localNameOf(span) == "span") {
+                            val role = getAttributeByLocalName(span, "role")
+                            when (role) {
+                                "x-bg" -> {
+                                    val bgLine = parseBackgroundSpan(span, beginMs)
+                                    if (bgLine != null) {
+                                        backgroundLines.add(bgLine)
+                                    }
+                                }
+                                "x-translation", "x-roman" -> {
+                                    // Skip translation/romanization spans from polluting main lyric line
+                                }
+                                else -> {
+                                    val wordBegin = span.getAttribute("begin")
+                                    val wordEnd = span.getAttribute("end")
+                                    val wordText = sanitizeTextFragment(span.textContent.orEmpty()).trim()
+
+                                    val wordBeginMs = parseTimeExpression(wordBegin)
+                                    val wordEndMs = parseTimeExpression(wordEnd)
+
+                                    if (wordText.isNotEmpty() && wordBeginMs != null) {
+                                        val nextSibling = node.nextSibling
+                                        val hasTrailingSpace = isWordBoundary(nextSibling)
+                                        spanInfos.add(
+                                            SpanInfo(
+                                                text = wordText,
+                                                startTimeMs = wordBeginMs,
+                                                endTimeMs = wordEndMs ?: (wordBeginMs + 300),
+                                                hasTrailingSpace = hasTrailingSpace
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-            }.sortedBy { it.first }
-                .joinToString("\n") { it.second }
-                .takeIf { it.isNotBlank() }
+
+                val words = mergeSpansIntoWords(spanInfos)
+                val lineText = words.joinToString(" ") { it.text }
+
+                val finalText = if (lineText.isEmpty()) {
+                    getDirectTextContent(paragraph).trim()
+                } else {
+                    lineText
+                }
+
+                if (finalText.isNotEmpty()) {
+                    parsedLines.add(
+                        ParsedLine(
+                            text = finalText,
+                            startTimeMs = beginMs,
+                            words = words,
+                            agent = agent,
+                            isBackground = false,
+                            backgroundLines = backgroundLines
+                        )
+                    )
+                }
+            }
+
+            if (parsedLines.isEmpty()) return null
+
+            toLrcString(parsedLines)
         }.getOrNull()
+    }
+
+    private fun parseBackgroundSpan(span: Element, parentStartTimeMs: Int): ParsedLine? {
+        val bgBegin = span.getAttribute("begin")
+        val bgEnd = span.getAttribute("end")
+        val bgStartTimeMs = parseTimeExpression(bgBegin) ?: parentStartTimeMs
+
+        val spanInfos = mutableListOf<SpanInfo>()
+        val childNodes = span.childNodes
+
+        for (j in 0 until childNodes.length) {
+            val node = childNodes.item(j)
+            if (node.nodeType == Node.ELEMENT_NODE) {
+                val innerSpan = node as? Element
+                if (innerSpan != null && localNameOf(innerSpan) == "span") {
+                    val role = getAttributeByLocalName(innerSpan, "role")
+                    if (role == "x-translation" || role == "x-roman") continue
+
+                    val wordBegin = innerSpan.getAttribute("begin")
+                    val wordEnd = innerSpan.getAttribute("end")
+                    val wordText = sanitizeTextFragment(innerSpan.textContent.orEmpty()).replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "").trim()
+
+                    val wordBeginMs = parseTimeExpression(wordBegin)
+                    val wordEndMs = parseTimeExpression(wordEnd)
+
+                    if (wordText.isNotEmpty() && wordBeginMs != null) {
+                        val nextSibling = node.nextSibling
+                        val hasTrailingSpace = isWordBoundary(nextSibling)
+                        spanInfos.add(
+                            SpanInfo(
+                                text = wordText,
+                                startTimeMs = wordBeginMs,
+                                endTimeMs = wordEndMs ?: (wordBeginMs + 300),
+                                hasTrailingSpace = hasTrailingSpace
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        val words = mergeSpansIntoWords(spanInfos).map {
+            it.copy(text = LyricsUtils.cleanLyricBrackets(it.text.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "")))
+        }.filter { it.text.isNotEmpty() }
+        val lineText = words.joinToString(" ") { it.text }
+
+        val rawContent = if (lineText.isEmpty()) getDirectTextContent(span).trim() else lineText
+        val finalText = LyricsUtils.cleanLyricBrackets(rawContent)
+
+        return if (finalText.isNotEmpty()) {
+            ParsedLine(
+                text = finalText,
+                startTimeMs = bgStartTimeMs,
+                words = words,
+                agent = null,
+                isBackground = true,
+                backgroundLines = emptyList()
+            )
+        } else null
+    }
+
+    private fun getDirectTextContent(element: Element): String {
+        val sb = StringBuilder()
+        val childNodes = element.childNodes
+        for (i in 0 until childNodes.length) {
+            val node = childNodes.item(i)
+            if (node.nodeType == Node.TEXT_NODE) {
+                sb.append(node.textContent)
+            } else if (node.nodeType == Node.ELEMENT_NODE) {
+                val el = node as? Element
+                val role = el?.let { getAttributeByLocalName(it, "role") } ?: ""
+                if (role != "x-bg" && role != "x-translation" && role != "x-roman") {
+                    if (el != null && localNameOf(el) == "span") {
+                        sb.append(el.textContent ?: "")
+                    }
+                }
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun isWordBoundary(node: Node?): Boolean {
+        if (node == null || node.nodeType != Node.TEXT_NODE) return false
+        val between = node.textContent ?: return false
+        if (between.isEmpty()) return false
+        if (between.contains('\n') || between.contains('\r')) return false
+        return between.any { it == ' ' || it == '\t' || it == '\u00A0' }
+    }
+
+    private fun mergeSpansIntoWords(spanInfos: List<SpanInfo>): List<ParsedWord> {
+        if (spanInfos.isEmpty()) return emptyList()
+
+        val words = mutableListOf<ParsedWord>()
+        var currentText = StringBuilder()
+        var currentStartTime = spanInfos[0].startTimeMs
+        var currentEndTime = spanInfos[0].endTimeMs
+
+        for ((index, span) in spanInfos.withIndex()) {
+            if (index == 0) {
+                currentText.append(span.text)
+                currentStartTime = span.startTimeMs
+                currentEndTime = span.endTimeMs
+            } else {
+                val prevSpan = spanInfos[index - 1]
+                if (prevSpan.hasTrailingSpace) {
+                    if (currentText.isNotEmpty()) {
+                        words.add(
+                            ParsedWord(
+                                text = currentText.toString().trim(),
+                                startTimeMs = currentStartTime,
+                                endTimeMs = currentEndTime
+                            )
+                        )
+                    }
+                    currentText = StringBuilder(span.text)
+                    currentStartTime = span.startTimeMs
+                    currentEndTime = span.endTimeMs
+                } else {
+                    currentText.append(span.text)
+                    currentEndTime = span.endTimeMs
+                }
+            }
+        }
+
+        if (currentText.isNotEmpty()) {
+            words.add(
+                ParsedWord(
+                    text = currentText.toString().trim(),
+                    startTimeMs = currentStartTime,
+                    endTimeMs = currentEndTime
+                )
+            )
+        }
+
+        return words
+    }
+
+    private fun toLrcString(lines: List<ParsedLine>): String {
+        return buildString {
+            lines.sortedBy { it.startTimeMs }.forEach { line ->
+                val timeStr = formatLrcTimestamp(line.startTimeMs)
+                val agentPrefix = if (!line.agent.isNullOrEmpty()) "{agent:${line.agent}}" else ""
+                val bgPrefix = if (line.isBackground) "{bg}" else ""
+
+                // Format line with word-by-word timestamp tags if available
+                if (line.words.isNotEmpty()) {
+                    val wordTaggedLine = line.words.joinToString(" ") { word ->
+                        "<${formatLrcTimestamp(word.startTimeMs)}>${word.text}"
+                    }
+                    appendLine("[$timeStr]$bgPrefix$agentPrefix$wordTaggedLine")
+
+                    // Also output pipe-delimited words metadata for rich syllable sync engines
+                    val wordsData = line.words.joinToString("|") { word ->
+                        val startSec = word.startTimeMs / 1000.0
+                        val endSec = word.endTimeMs / 1000.0
+                        "${word.text}:$startSec:$endSec"
+                    }
+                    appendLine("<$wordsData>")
+                } else {
+                    appendLine("[$timeStr]$bgPrefix$agentPrefix${line.text}")
+                }
+
+                // Append any discrete background lines
+                line.backgroundLines.sortedBy { it.startTimeMs }.forEach { bgLine ->
+                    val bgTimeStr = formatLrcTimestamp(bgLine.startTimeMs)
+                    if (bgLine.words.isNotEmpty()) {
+                        val wordTaggedBg = bgLine.words.joinToString(" ") { word ->
+                            "<${formatLrcTimestamp(word.startTimeMs)}>${word.text}"
+                        }
+                        appendLine("[$bgTimeStr]{bg}$wordTaggedBg")
+
+                        val bgWordsData = bgLine.words.joinToString("|") { word ->
+                            val startSec = word.startTimeMs / 1000.0
+                            val endSec = word.endTimeMs / 1000.0
+                            "${word.text}:$startSec:$endSec"
+                        }
+                        appendLine("<$bgWordsData>")
+                    } else {
+                        appendLine("[$bgTimeStr]{bg}${LyricsUtils.cleanLyricBrackets(bgLine.text)}")
+                    }
+                }
+            }
+        }.trim()
+    }
+
+    private fun getAttributeByLocalName(element: Element, localName: String): String {
+        val nsValue = element.getAttributeNS("http://www.w3.org/ns/ttml#metadata", localName)
+        if (nsValue.isNotEmpty()) return nsValue
+
+        val prefixedValue = element.getAttribute("ttm:$localName")
+        if (prefixedValue.isNotEmpty()) return prefixedValue
+
+        val directValue = element.getAttribute(localName)
+        if (directValue.isNotEmpty()) return directValue
+
+        val attrs = element.attributes
+        if (attrs != null) {
+            for (i in 0 until attrs.length) {
+                val attr = attrs.item(i)
+                val attrName = attr.nodeName ?: continue
+                if (attrName == localName || attrName.endsWith(":$localName")) {
+                    return attr.nodeValue ?: ""
+                }
+            }
+        }
+        return ""
     }
 
     private fun normalizeTtmlDocument(raw: String): String {
@@ -79,40 +375,6 @@ internal object TtmlLyricsParser {
         return null
     }
 
-    private fun serializeChildren(node: Node): String {
-        val builder = StringBuilder()
-        var child = node.firstChild
-        while (child != null) {
-            builder.append(serializeNode(child))
-            child = child.nextSibling
-        }
-        return builder.toString()
-    }
-
-    private fun serializeNode(node: Node): String {
-        return when (node.nodeType) {
-            Node.TEXT_NODE, Node.CDATA_SECTION_NODE -> sanitizeTextFragment(node.nodeValue.orEmpty())
-            Node.ELEMENT_NODE -> serializeElement(node as Element)
-            else -> ""
-        }
-    }
-
-    private fun serializeElement(element: Element): String {
-        return when (localNameOf(element)) {
-            "br" -> "\n"
-            "span" -> {
-                val content = normalizeInlineText(serializeChildren(element))
-                if (content.isBlank()) {
-                    ""
-                } else {
-                    val beginMs = parseTimeExpression(element.getAttribute("begin"))
-                    if (beginMs != null) "<${formatLrcTimestamp(beginMs)}>$content" else content
-                }
-            }
-            else -> serializeChildren(element)
-        }
-    }
-
     private fun localNameOf(element: Element): String {
         return element.localName?.lowercase()
             ?: element.tagName.substringAfterLast(':').lowercase()
@@ -135,22 +397,6 @@ internal object TtmlLyricsParser {
         }
 
         return cleaned.replace(Regex("\\s+"), " ")
-    }
-
-    private fun normalizeInlineText(value: String): String {
-        return value
-            .replace(Regex("[ ]{2,}"), " ")
-            .replace(Regex(" *\n *"), "\n")
-            .trim('\n')
-    }
-
-    private fun normalizeParagraphBody(value: String): String {
-        return value
-            .lineSequence()
-            .map { line -> line.replace(Regex("[ ]{2,}"), " ").trim() }
-            .filter { it.isNotEmpty() }
-            .joinToString("\n")
-            .trim()
     }
 
     private fun parseTimeExpression(value: String?): Int? {

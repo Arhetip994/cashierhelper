@@ -231,4 +231,47 @@
     <string name="lyrics_translation_language_desc">卡拉OK及歌词翻译目标语言</string>
     <string name="lyrics_translation_ai_active">✨ AI 诗意翻译已启用 (%1$s)</string>
     <string name="lyrics_translation_google_active">正在使用谷歌翻译（如需 AI 请在设置 → AI 集成中配置 API 密钥）</string>
+
+    <!-- Import & Sync / Transfer -->
+    <string name="import_sync_nav_title">导入与转移歌曲</string>
+    <string name="import_sync_nav_subtitle">Yandex Music、Spotify、Apple Music、Deezer、CSV</string>
+    <string name="import_sync_title">导入与转移</string>
+    <string name="import_sync_hero_title">同步与转移</string>
+    <string name="import_sync_hero_subtitle">汇总所有播放器中的音乐</string>
+    <string name="import_sync_hero_desc">从 Yandex Music、Spotify、Apple Music、Deezer 和 YouTube 转移曲目，保留播放顺序与歌单。</string>
+    <string name="import_link_card_title">通过链接导入</string>
+    <string name="import_link_card_subtitle">粘贴播放列表或专辑链接</string>
+    <string name="import_link_placeholder">粘贴播放列表或专辑链接…</string>
+    <string name="import_paste_button">粘贴</string>
+    <string name="import_detected_prefix">已识别：%s</string>
+    <string name="import_btn_start">导入到音乐库</string>
+    <string name="import_btn_loading">正在导入…</string>
+    <string name="import_csv_card_title">CSV 文件 (TuneMyMusic / Soundiiz)</string>
+    <string name="import_csv_card_subtitle">从备份或导出文件导入</string>
+    <string name="import_csv_pick_button">选择文件</string>
+    <string name="import_supported_platforms_title">支持的平台</string>
+    <string name="import_yandex_music">Yandex Music</string>
+    <string name="import_yandex_subtitle">公开歌单与专辑</string>
+    <string name="import_spotify">Spotify</string>
+    <string name="import_spotify_subtitle">歌单与专辑</string>
+    <string name="import_apple_music">Apple Music</string>
+    <string name="import_apple_subtitle">歌单与专辑</string>
+    <string name="import_deezer">Deezer</string>
+    <string name="import_deezer_subtitle">任意长度歌单与专辑</string>
+    <string name="import_youtube_music">YouTube Music</string>
+    <string name="import_youtube_subtitle">歌单与合集</string>
+    <string name="import_how_it_works_title">如何使用？</string>
+    <string name="import_how_it_works_desc">• 打开音乐应用（Yandex、Spotify 等），在歌单或专辑上点击“分享”并复制链接。\n• 将链接粘贴至此处——应用将自动匹配歌曲与歌手，以高品质音质添加到曲库中。\n• 若要迁移整个曲库，可通过 TuneMyMusic 或 Soundiiz 导出为 CSV 文件。</string>
+    <string name="import_status_fetching">正在获取歌单信息…</string>
+    <string name="import_status_reading_csv">正在读取 CSV 文件…</string>
+    <string name="import_status_progress">正在导入歌曲：%1$d / %2$d</string>
+    <string name="import_status_progress_imported">已导入 %1$d 首，共 %2$d 首</string>
+    <string name="import_status_matching">正在搜索并匹配歌曲…</string>
+    <string name="import_status_success">歌单导入成功！</string>
+    <string name="import_open_button">打开</string>
+    <string name="import_dialog_full_screen_btn">转移页面与 CSV</string>
+    <string name="import_dialog_title">导入歌单</string>
+    <string name="import_link_label">链接</string>
+    <string name="import_file_error">读取文件失败</string>
+    <string name="import_finished_toast">导入完成！</string>
 </resources>

@@ -157,22 +157,18 @@ class GeminiModelService @Inject constructor(
     }
 
     private fun getDefaultModels(): List<GeminiModel> {
-        // Full curated list derived from latest supported JSON spec
+        // Full curated list derived from Paxsenix API
         return listOf(
-            GeminiModel("gemini-3-flash-preview", "Gemini 3.0 Flash (Free Default)"),
-            GeminiModel("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
-            GeminiModel("gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite"),
-            GeminiModel("gemini-3-pro-preview", "Gemini 3.0 Pro"),
-            GeminiModel("gemini-flash-latest", "Gemini Flash Latest"),
-            GeminiModel("gemini-flash-lite-latest", "Gemini Flash-Lite Latest"),
-            GeminiModel("gemini-pro-latest", "Gemini Pro Latest"),
-            GeminiModel("gemini-2.5-flash", "Gemini 2.5 Flash"),
-            GeminiModel("gemini-2.5-pro", "Gemini 2.5 Pro"),
             GeminiModel("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite"),
-            GeminiModel("gemini-2.0-flash", "Gemini 2.0 Flash"),
-            GeminiModel("gemini-2.0-flash-lite", "Gemini 2.0 Flash-Lite"),
-            GeminiModel("gemma-3-12b-it", "Gemma 3 12B"),
-            GeminiModel("gemma-3-27b-it", "Gemma 3 27B")
+            GeminiModel("gemini-2.5-pro", "Gemini 2.5 Pro"),
+            GeminiModel("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite"),
+            GeminiModel("gemini-3.1-pro", "Gemini 3.1 Pro"),
+            GeminiModel("gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"),
+            GeminiModel("gemini-3.6-flash", "Gemini 3.6 Flash"),
+            GeminiModel("gemini-3.8-flash", "Gemini 3.8 Flash"),
+            GeminiModel("gemma-3-27b", "Gemma 3 27B"),
+            GeminiModel("gemma-4-26b", "Gemma 4 26B"),
+            GeminiModel("gemma-4-31b", "Gemma 4 31B")
         )
     }
 }

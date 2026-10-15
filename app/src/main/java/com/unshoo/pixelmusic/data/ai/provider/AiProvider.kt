@@ -12,11 +12,12 @@ enum class AiProvider(val displayName: String, val requiresApiKey: Boolean) {
     KIMI("Kimi (Moonshot)", requiresApiKey = true),
     GLM("Zhipu GLM", requiresApiKey = true),
     OPENAI("OpenAI", requiresApiKey = true),
-    OPENROUTER("OpenRouter", requiresApiKey = true);
+    OPENROUTER("OpenRouter", requiresApiKey = true),
+    CUSTOM("Custom (OpenAI-compatible)", requiresApiKey = false);
     
     companion object {
         fun fromString(value: String): AiProvider {
-            return entries.find { it.name == value } ?: GEMINI
+            return entries.find { it.name.equals(value, ignoreCase = true) } ?: GEMINI
         }
     }
 }

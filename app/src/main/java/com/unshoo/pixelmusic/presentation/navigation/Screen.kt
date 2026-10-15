@@ -72,5 +72,5 @@ sealed class Screen(val route: String) {
     object QobuzLogin : Screen("lossless_qobuz_login")
     object AppleMusicLogin : Screen("lossless_apple_music_login")
     object CloudDownloads : Screen("cloud_downloads")
-
+    object ImportSync : Screen("import_sync")
 }

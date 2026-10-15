@@ -228,6 +228,8 @@ fun SettingsCategoryScreen(
     // State Collection (Duplicated from SettingsScreen for now to ensure functionality)
     val uiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
     val currentAiApiKey by settingsViewModel.currentAiApiKey.collectAsStateWithLifecycle()
+    val currentAiEndpoint by settingsViewModel.currentAiEndpoint.collectAsStateWithLifecycle()
+    val currentAiChatEndpoint by settingsViewModel.currentAiChatEndpoint.collectAsStateWithLifecycle()
     val currentAiModel by settingsViewModel.currentAiModel.collectAsStateWithLifecycle()
     val currentAiSystemPrompt by settingsViewModel.currentAiSystemPrompt.collectAsStateWithLifecycle()
     val aiProvider by settingsViewModel.aiProvider.collectAsStateWithLifecycle()
@@ -1531,18 +1533,37 @@ fun SettingsCategoryScreen(
                                     com.unshoo.pixelmusic.data.ai.provider.AiProvider.GLM -> stringResource(R.string.setcat_ai_source_glm)
                                     com.unshoo.pixelmusic.data.ai.provider.AiProvider.OPENAI -> stringResource(R.string.setcat_ai_source_openai)
                                     com.unshoo.pixelmusic.data.ai.provider.AiProvider.OPENROUTER -> "OpenRouter (openrouter.ai)"
+                                    com.unshoo.pixelmusic.data.ai.provider.AiProvider.CUSTOM -> "Custom / Local Endpoint (Ollama, LM Studio, Proxy)"
                                 }
                                 
                                 AiApiKeyItem(
                                     apiKey = currentAiApiKey,
                                     onApiKeySave = { settingsViewModel.onAiApiKeyChange(it) },
-                                    title = stringResource(R.string.setcat_ai_api_key_title, provider.displayName),
+                                    title = if (provider.requiresApiKey) stringResource(R.string.setcat_ai_api_key_title, provider.displayName) else "${provider.displayName} API Key (Optional)",
                                     subtitle = stringResource(R.string.setcat_ai_api_key_subtitle, sourceLabel)
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+                                AiEndpointItem(
+                                    endpoint = currentAiEndpoint,
+                                    onEndpointSave = { settingsViewModel.onAiEndpointChange(it) },
+                                    onReset = { settingsViewModel.resetAiEndpoint() },
+                                    title = "API Base URL",
+                                    subtitle = "Base URL for ${provider.displayName} requests (e.g. https://api.paxsenix.org or https://api.openai.com/v1)"
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                AiEndpointItem(
+                                    endpoint = currentAiChatEndpoint,
+                                    onEndpointSave = { settingsViewModel.onAiChatEndpointChange(it) },
+                                    onReset = { settingsViewModel.resetAiChatEndpoint() },
+                                    title = "Chat Completions Endpoint Path",
+                                    subtitle = "Endpoint path (default: /chat/completions; e.g. /v1/chat/completions or /api/chat)"
                                 )
                             }
 
                             // Model Selection Section
-                            if (currentAiApiKey.isNotBlank()) {
+                            val provider = com.unshoo.pixelmusic.data.ai.provider.AiProvider.fromString(aiProvider)
+                            if (currentAiApiKey.isNotBlank() || !provider.requiresApiKey) {
                                 SettingsSubsection(title = stringResource(R.string.setcat_model_selection)) {
                                     if (uiState.isLoadingModels) {
                                         Surface(
@@ -1566,6 +1587,7 @@ fun SettingsCategoryScreen(
                                                 )
                                             }
                                         }
+                                        Spacer(modifier = Modifier.height(8.dp))
                                     } else if (uiState.modelsFetchError != null) {
                                         Surface(
                                             color = MaterialTheme.colorScheme.errorContainer,
@@ -1573,12 +1595,13 @@ fun SettingsCategoryScreen(
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Text(
-                                                text = uiState.modelsFetchError ?: stringResource(R.string.models_fetch_failed),
+                                                text = "${uiState.modelsFetchError}. You can specify the model manually below.",
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = MaterialTheme.colorScheme.onErrorContainer,
                                                 modifier = Modifier.padding(16.dp)
                                             )
                                         }
+                                        Spacer(modifier = Modifier.height(8.dp))
                                     } else if (uiState.availableModels.isNotEmpty()) {
                                         ThemeSelectorItem(
                                             label = stringResource(R.string.setcat_ai_model_label),
@@ -1588,7 +1611,15 @@ fun SettingsCategoryScreen(
                                             onSelectionChanged = { settingsViewModel.onAiModelChange(it) },
                                             leadingIcon = { Icon(Icons.Rounded.Science, null, tint = MaterialTheme.colorScheme.secondary) }
                                         )
+                                        Spacer(modifier = Modifier.height(8.dp))
                                     }
+
+                                    AiModelManualItem(
+                                        currentModel = currentAiModel,
+                                        onModelSave = { settingsViewModel.onAiModelChange(it) },
+                                        title = "Manual Model Name",
+                                        subtitle = "Set exact model name (e.g. gpt-4o-mini, deepseek-chat, llama3.2)"
+                                    )
                                 }
                             }
 

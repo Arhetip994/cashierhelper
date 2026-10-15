@@ -200,6 +200,24 @@ fun LosslessSourcesSettings(
         )
     }
 
+    // ── Monochrome (FLAC) ──────────────────────────────────────────────────────────────────────
+    LosslessSubsection(title = "Monochrome (FLAC)") {
+        SwitchSettingItem(
+            title = "Use Monochrome",
+            subtitle = "Direct Lossless 16-bit/44.1 kHz FLAC stream provider (Free, no account needed).",
+            checked = state.monochromeEnabled,
+            onCheckedChange = viewModel::setMonochromeEnabled,
+            leadingIcon = { Icon(Icons.Outlined.GraphicEq, null, tint = secondary) },
+        )
+        CheckRow(
+            source = AudioSourceType.MONOCHROME,
+            result = checkResults[AudioSourceType.MONOCHROME],
+            busy = AudioSourceType.MONOCHROME.name in busy,
+            onCheck = { viewModel.checkSource(AudioSourceType.MONOCHROME) },
+            onDetails = { r -> resultDialog = "Monochrome" to r },
+        )
+    }
+
     // ── Tidal ─────────────────────────────────────────────────────────────────────────────────
     LosslessSubsection(title = "Tidal") {
         SwitchSettingItem(
@@ -1037,6 +1055,7 @@ private fun PoolHealthAndFeedCard(
 
 private fun AudioSourceType.displayName(): String =
     when (this) {
+        AudioSourceType.MONOCHROME -> "Monochrome (FLAC)"
         AudioSourceType.TIDAL -> "Tidal"
         AudioSourceType.QOBUZ -> "Qobuz"
         AudioSourceType.QOBUZ_BACKUP -> "Qobuz backup"

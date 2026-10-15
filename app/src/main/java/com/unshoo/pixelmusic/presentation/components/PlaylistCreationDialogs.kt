@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -110,6 +111,7 @@ fun PlaylistCreationTypeDialog(
     onDismiss: () -> Unit,
     onManualSelected: () -> Unit,
     onAiSelected: () -> Unit,
+    onImportSelected: () -> Unit = {},
     isAiEnabled: Boolean = true,
     onSetupAiClick: (() -> Unit)? = null
 ) {
@@ -180,6 +182,22 @@ fun PlaylistCreationTypeDialog(
                 )
 
                 CreationModeCard(
+                    title = "Импорт по ссылке",
+                    subtitle = "Яндекс Музыка, Spotify, Apple Music, Deezer, YouTube",
+                    icon = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    },
+                    onClick = onImportSelected,
+                    enabled = true,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+
+                CreationModeCard(
                     title = stringResource(R.string.presentation_batch_e_creation_mode_ai),
                     subtitle = if (isAiEnabled) {
                         stringResource(R.string.presentation_batch_e_creation_mode_ai_subtitle_enabled)
@@ -223,6 +241,183 @@ fun PlaylistCreationTypeDialog(
                         Icon(Icons.Rounded.Key, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.presentation_batch_e_setup_api_key))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ImportPlaylistDialog(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+    playlistViewModel: com.unshoo.pixelmusic.presentation.viewmodel.PlaylistViewModel,
+    onOpenFullImport: (() -> Unit)? = null
+) {
+    if (!visible) return
+
+    val context = LocalContext.current
+    var urlText by rememberSaveable { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    var progressStatus by remember { mutableStateOf("") }
+    var progressFraction by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+
+    val dialogShape = AbsoluteSmoothCornerShape(
+        cornerRadiusTL = 24.dp,
+        smoothnessAsPercentTL = 60,
+        cornerRadiusTR = 24.dp,
+        smoothnessAsPercentTR = 60,
+        cornerRadiusBL = 40.dp,
+        smoothnessAsPercentBL = 60,
+        cornerRadiusBR = 40.dp,
+        smoothnessAsPercentBR = 60
+    )
+
+    Dialog(
+        onDismissRequest = { if (!isLoading) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = true)
+    ) {
+        Surface(
+            shape = dialogShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 6.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.import_dialog_title),
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontFamily = GoogleSansRounded,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = stringResource(R.string.import_link_card_subtitle),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf("Яндекс Музыка", "Spotify", "Apple Music", "Deezer", "YouTube").forEach { service ->
+                        AssistChip(
+                            onClick = {},
+                            label = { Text(service, style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = urlText,
+                    onValueChange = { urlText = it },
+                    label = { Text(stringResource(R.string.import_link_label)) },
+                    placeholder = { Text("https://music.yandex.ru/...") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        IconButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                val clip = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()
+                                if (!clip.isNullOrBlank()) {
+                                    urlText = clip
+                                }
+                            },
+                            enabled = !isLoading
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = stringResource(R.string.import_paste_button))
+                        }
+                    }
+                )
+
+                if (onOpenFullImport != null && !isLoading) {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            onDismiss()
+                            onOpenFullImport()
+                        },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text(stringResource(R.string.import_dialog_full_screen_btn), style = MaterialTheme.typography.labelMedium)
+                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
+                }
+
+                if (isLoading) {
+                    val defaultFetching = stringResource(R.string.import_status_fetching)
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { if (progressFraction > 0f) progressFraction else 0f },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = if (progressStatus.isNotEmpty()) progressStatus else defaultFetching,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                val progressFormat = stringResource(R.string.import_status_progress)
+                val successToast = stringResource(R.string.import_status_success)
+                val searchingStatus = stringResource(R.string.import_status_matching)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    androidx.compose.material3.TextButton(
+                        onClick = onDismiss,
+                        enabled = !isLoading
+                    ) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    FilledTonalButton(
+                        onClick = {
+                            if (urlText.isNotBlank()) {
+                                isLoading = true
+                                progressStatus = searchingStatus
+                                playlistViewModel.importExternalPlaylist(
+                                    url = urlText,
+                                    onProgress = { current, total ->
+                                        progressFraction = if (total > 0) current.toFloat() / total.toFloat() else 0f
+                                        progressStatus = String.format(progressFormat, current, total)
+                                    },
+                                    onSuccess = {
+                                        isLoading = false
+                                        android.widget.Toast.makeText(context, successToast, android.widget.Toast.LENGTH_SHORT).show()
+                                        onDismiss()
+                                    },
+                                    onError = { error ->
+                                        isLoading = false
+                                        android.widget.Toast.makeText(context, error, android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                )
+                            }
+                        },
+                        enabled = urlText.isNotBlank() && !isLoading
+                    ) {
+                        Text(stringResource(R.string.import_sync_title))
                     }
                 }
             }

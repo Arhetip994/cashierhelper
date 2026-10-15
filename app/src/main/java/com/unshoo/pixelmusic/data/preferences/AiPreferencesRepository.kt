@@ -38,13 +38,47 @@ class AiPreferencesRepository @Inject constructor(
         val SAFE_TOKEN_LIMIT = booleanPreferencesKey("safe_token_limit")
 
         fun getApiKey(provider: AiProvider) = stringPreferencesKey("${provider.name.lowercase()}_api_key")
+        fun getEndpoint(provider: AiProvider) = stringPreferencesKey("${provider.name.lowercase()}_endpoint")
+        fun getChatEndpoint(provider: AiProvider) = stringPreferencesKey("${provider.name.lowercase()}_chat_endpoint")
         fun getModel(provider: AiProvider) = stringPreferencesKey("${provider.name.lowercase()}_model")
         fun getSystemPrompt(provider: AiProvider) = stringPreferencesKey("${provider.name.lowercase()}_system_prompt")
+    }
+
+    fun getDefaultEndpoint(provider: AiProvider): String {
+        return when (provider) {
+            AiProvider.GEMINI -> ""
+            AiProvider.DEEPSEEK -> "https://api.deepseek.com"
+            AiProvider.GROQ -> "https://api.groq.com/openai/v1"
+            AiProvider.MISTRAL -> "https://api.mistral.ai/v1"
+            AiProvider.NVIDIA -> "https://integrate.api.nvidia.com/v1"
+            AiProvider.KIMI -> "https://api.moonshot.cn/v1"
+            AiProvider.GLM -> "https://open.bigmodel.cn/api/paas/v4"
+            AiProvider.OPENAI -> "https://api.openai.com/v1"
+            AiProvider.OPENROUTER -> "https://openrouter.ai/api/v1"
+            AiProvider.CUSTOM -> "https://api.paxsenix.org"
+        }
+    }
+
+    fun getDefaultChatEndpoint(provider: AiProvider): String {
+        return when (provider) {
+            AiProvider.CUSTOM -> "/v1/chat/completions"
+            else -> "/chat/completions"
+        }
     }
 
     // Generic accessors for AiOrchestrator
     fun getApiKey(provider: AiProvider): Flow<String> =
         dataStore.data.map { preferences -> preferences[Keys.getApiKey(provider)] ?: "" }
+
+    fun getEndpoint(provider: AiProvider): Flow<String> =
+        dataStore.data.map { preferences ->
+            preferences[Keys.getEndpoint(provider)] ?: getDefaultEndpoint(provider)
+        }
+
+    fun getChatEndpoint(provider: AiProvider): Flow<String> =
+        dataStore.data.map { preferences ->
+            preferences[Keys.getChatEndpoint(provider)] ?: getDefaultChatEndpoint(provider)
+        }
 
     fun getModel(provider: AiProvider): Flow<String> =
         dataStore.data.map { preferences -> preferences[Keys.getModel(provider)] ?: "" }
@@ -56,6 +90,18 @@ class AiPreferencesRepository @Inject constructor(
 
     suspend fun setApiKey(provider: AiProvider, apiKey: String) {
         dataStore.edit { preferences -> preferences[Keys.getApiKey(provider)] = apiKey }
+    }
+
+    suspend fun setEndpoint(provider: AiProvider, endpoint: String) {
+        dataStore.edit { preferences -> preferences[Keys.getEndpoint(provider)] = endpoint }
+    }
+
+    suspend fun setChatEndpoint(provider: AiProvider, endpoint: String) {
+        dataStore.edit { preferences -> preferences[Keys.getChatEndpoint(provider)] = endpoint }
+    }
+
+    suspend fun resetChatEndpoint(provider: AiProvider) {
+        dataStore.edit { preferences -> preferences[Keys.getChatEndpoint(provider)] = getDefaultChatEndpoint(provider) }
     }
 
     suspend fun setModel(provider: AiProvider, model: String) {
@@ -76,18 +122,38 @@ class AiPreferencesRepository @Inject constructor(
         val prefs = dataStore.data.first()
         val providerStr = prefs[Keys.AI_PROVIDER] ?: "GEMINI"
         val provider = AiProvider.fromString(providerStr)
+        if (!provider.requiresApiKey) {
+            val customEndpoint = prefs[Keys.getEndpoint(provider)] ?: getDefaultEndpoint(provider)
+            return customEndpoint.isNotBlank()
+        }
         val currentKey = prefs[Keys.getApiKey(provider)] ?: ""
         if (currentKey.isNotBlank()) return true
-        return AiProvider.entries.any { (prefs[Keys.getApiKey(it)] ?: "").isNotBlank() }
+        return AiProvider.entries.any {
+            if (!it.requiresApiKey) {
+                (prefs[Keys.getEndpoint(it)] ?: getDefaultEndpoint(it)).isNotBlank()
+            } else {
+                (prefs[Keys.getApiKey(it)] ?: "").isNotBlank()
+            }
+        }
     }
 
     suspend fun getActiveAiProviderDisplayName(): String? {
         val prefs = dataStore.data.first()
         val providerStr = prefs[Keys.AI_PROVIDER] ?: "GEMINI"
         val provider = AiProvider.fromString(providerStr)
+        if (!provider.requiresApiKey) {
+            val customEndpoint = prefs[Keys.getEndpoint(provider)] ?: getDefaultEndpoint(provider)
+            if (customEndpoint.isNotBlank()) return provider.displayName
+        }
         val currentKey = prefs[Keys.getApiKey(provider)] ?: ""
         if (currentKey.isNotBlank()) return provider.displayName
-        val fallback = AiProvider.entries.firstOrNull { (prefs[Keys.getApiKey(it)] ?: "").isNotBlank() }
+        val fallback = AiProvider.entries.firstOrNull {
+            if (!it.requiresApiKey) {
+                (prefs[Keys.getEndpoint(it)] ?: getDefaultEndpoint(it)).isNotBlank()
+            } else {
+                (prefs[Keys.getApiKey(it)] ?: "").isNotBlank()
+            }
+        }
         return fallback?.displayName
     }
 
