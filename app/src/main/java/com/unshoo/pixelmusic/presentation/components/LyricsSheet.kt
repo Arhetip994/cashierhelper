@@ -954,7 +954,40 @@ fun LyricsSheet(
                                 lyricsAlignment = lyricsAlignment,
                                 showTranslation = showLyricsTranslation || (showRussianTranslation && localTranslatedLyrics != null),
                                 showRomanization = showLyricsRomanization,
-                                footer = {}
+                                footer = {
+                                    effectiveLyrics?.credits?.takeIf { it.isNotEmpty() }?.let { credits ->
+                                        item {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(top = 36.dp, bottom = 48.dp, start = 20.dp, end = 20.dp),
+                                                horizontalAlignment = when (lyricsAlignment) {
+                                                    "center" -> Alignment.CenterHorizontally
+                                                    "right" -> Alignment.End
+                                                    else -> Alignment.Start
+                                                }
+                                            ) {
+                                                Text(
+                                                    text = "Songwriters & Contributors",
+                                                    style = MaterialTheme.typography.labelMedium.copy(
+                                                        color = LocalContentColor.current.copy(alpha = 0.5f),
+                                                        fontWeight = FontWeight.SemiBold
+                                                    ),
+                                                    modifier = Modifier.padding(bottom = 6.dp)
+                                                )
+                                                credits.forEach { creditLine ->
+                                                    Text(
+                                                        text = creditLine,
+                                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                                            color = LocalContentColor.current.copy(alpha = 0.65f)
+                                                        ),
+                                                        modifier = Modifier.padding(vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
@@ -1765,29 +1798,8 @@ fun LyricLineRow(
     val lineEndTime = remember(line, nextTime) {
         resolveLineEndTimeMs(line, nextTime)
     }
-    val sanitizedWords = remember(line.words, sanitizedLine, line.time, lineEndTime, useAnimatedLyrics) {
-        val parsed = line.words?.let(::sanitizeSyncedWords)
-        if (!parsed.isNullOrEmpty()) {
-            parsed
-        } else if (useAnimatedLyrics && lineEndTime > line.time) {
-            val tokens = sanitizedLine.split(" ").filter { it.isNotEmpty() }
-            if (tokens.isNotEmpty()) {
-                val totalChars = sanitizedLine.length
-                val lineDuration = (lineEndTime - line.time).toLong()
-                var accumulated = 0L
-                tokens.mapIndexed { idx, token ->
-                    val charCount = if (idx < tokens.size - 1) token.length + 1 else token.length
-                    val wordTime = line.time + accumulated.toInt()
-                    val wordDur = if (totalChars > 0) (lineDuration * charCount.toFloat() / totalChars).toLong() else (lineDuration / tokens.size)
-                    accumulated += wordDur
-                    SyncedWord(
-                        time = wordTime,
-                        word = token,
-                        startsNewWord = true
-                    )
-                }
-            } else null
-        } else null
+    val sanitizedWords = remember(line.words) {
+        line.words?.let(::sanitizeSyncedWords)?.takeIf { it.isNotEmpty() }
     }
     val sanitizedWordClusters = remember(sanitizedWords) {
         sanitizedWords?.takeIf { it.isNotEmpty() }?.let(::clusterSyncedWords)
@@ -1980,32 +1992,36 @@ fun LyricLineRow(
                     textAlign = textAlign,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
-                // Progressive sweep fill for active line (Apple Music & DynamicIsland Lyric.cs style)
+                // Progressive sweep fill for active line (Apple Music shimmering line style)
                 if (isCurrentLine && useAnimatedLyrics) {
                     val rawProgress = if (lineEndTime > line.time) {
                         ((position - line.time.toLong()).toFloat() / (lineEndTime - line.time).toFloat()).coerceIn(0f, 1f)
                     } else 1f
 
-                    val sweepProgress by animateFloatAsState(
-                        targetValue = rawProgress,
-                        animationSpec = tween(durationMillis = 200, easing = LinearEasing),
-                        label = "sweepFillProgress"
-                    )
-
-                    val feather = 0.08f
+                    val feather = 0.05f
+                    val shimmerWidth = 0.12f
                     val sweepBrush = Brush.horizontalGradient(
                         colorStops = arrayOf(
                             0.0f to accentColor,
-                            (sweepProgress - feather).coerceAtLeast(0f) to accentColor,
-                            sweepProgress to accentColor.copy(alpha = 0.90f),
-                            (sweepProgress + feather).coerceAtMost(1f) to Color.Transparent,
+                            (rawProgress - shimmerWidth).coerceAtLeast(0f) to accentColor,
+                            (rawProgress - feather).coerceIn(0f, 1f) to Color.White.copy(alpha = 0.95f),
+                            rawProgress to Color.White,
+                            (rawProgress + feather).coerceIn(0f, 1f) to accentColor.copy(alpha = 0.85f),
+                            (rawProgress + shimmerWidth).coerceAtMost(1f) to Color.Transparent,
                             1.0f to Color.Transparent
                         )
                     )
 
                     Text(
                         text = sanitizedLine,
-                        style = effectiveStyle.copy(brush = sweepBrush),
+                        style = effectiveStyle.copy(
+                            brush = sweepBrush,
+                            shadow = Shadow(
+                                color = accentColor.copy(alpha = 0.35f),
+                                offset = Offset.Zero,
+                                blurRadius = 10f
+                            )
+                        ),
                         fontWeight = FontWeight.Bold,
                         textAlign = textAlign,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -2159,41 +2175,41 @@ fun LyricWordSpan(
         else -> ((position - wordStartTime).toFloat() / wordDuration.toFloat()).coerceIn(0f, 1f)
     }
 
-    val animatedProgress by animateFloatAsState(
-        targetValue = rawProgress,
-        animationSpec = tween(durationMillis = 80, easing = LinearEasing),
-        label = "wordProgress"
-    )
-
-    // Musicfy & Apple Music syllable wave bounce & breathing scale
-    val sinProgress = sin(rawProgress * PI).toFloat()
-    val wordScale = if (useAnimatedLyrics && isHighlighted) 1f + (0.018f * sinProgress) else 1f
-
-    val targetFloat = if (useAnimatedLyrics && isHighlighted) -4f * sinProgress else 0f
+    // Apple Music Syllable Physics: word floats up and gently expands while sung
+    val targetFloat = if (useAnimatedLyrics && isHighlighted) -5f else 0f
     val floatOffset by animateFloatAsState(
         targetValue = targetFloat,
-        animationSpec = tween(
-            durationMillis = if (isHighlighted) 50 else 350,
-            easing = FastOutSlowInEasing
+        animationSpec = spring(
+            stiffness = Spring.StiffnessMediumLow,
+            dampingRatio = Spring.DampingRatioMediumBouncy
         ),
         label = "WordFloatOffset"
     )
 
+    val targetScale = if (useAnimatedLyrics && isHighlighted) 1.05f else 1.0f
+    val wordScale by animateFloatAsState(
+        targetValue = targetScale,
+        animationSpec = spring(
+            stiffness = Spring.StiffnessMediumLow,
+            dampingRatio = Spring.DampingRatioMediumBouncy
+        ),
+        label = "WordScale"
+    )
+
     // Dynamic glowing flare shadow
-    val glowProgress = (rawProgress * 2f).coerceAtMost(1f)
-    val glowAlpha = if (useAnimatedLyrics && isHighlighted) glowProgress * 0.45f else 0f
-    val glowRadius = if (useAnimatedLyrics && isHighlighted) glowProgress * 12f else 0f
+    val glowAlpha = if (useAnimatedLyrics && isHighlighted) 0.50f else 0f
+    val glowRadius = if (useAnimatedLyrics && isHighlighted) 12f else 0f
 
     val textShadow = if (glowAlpha > 0f) {
         Shadow(
             color = highlightedColor.copy(alpha = glowAlpha),
             offset = Offset.Zero,
-            blurRadius = glowRadius.coerceAtLeast(1f)
+            blurRadius = glowRadius
         )
     } else null
 
     val targetAlpha = when {
-        isHighlighted -> if (isBackground) 0.85f else 1f
+        isHighlighted -> if (isBackground) 0.88f else 1f
         isPast -> if (useAnimatedLyrics) (if (isBackground) 0.75f else 0.95f) else 1f
         else -> if (useAnimatedLyrics) (if (isBackground) 0.35f else 0.45f) else 0.85f
     }
@@ -2228,23 +2244,23 @@ fun LyricWordSpan(
             softWrap = false
         )
 
-        // Highlighted text swept with Apple Music soft-edge mask
+        // Highlighted text swept with Apple Music soft-edge mask (exact real-time frame sync, zero latency)
         if (useAnimatedLyrics && (isHighlighted || isPast)) {
             Text(
                 text = cleanText,
                 style = style.copy(shadow = textShadow),
-                color = highlightedColor.copy(alpha = if (isBackground) 0.85f else 1f),
+                color = highlightedColor.copy(alpha = if (isBackground) 0.88f else 1f),
                 fontWeight = if (isHighlighted || isPast) FontWeight.Bold else FontWeight.SemiBold,
                 softWrap = false,
                 modifier = Modifier
                     .padding(horizontal = 4.dp, vertical = 2.dp)
                     .then(
-                        if (isHighlighted && animatedProgress < 1f) {
+                        if (isHighlighted && rawProgress < 1f) {
                             Modifier
                                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                                 .drawWithContent {
                                     drawContent()
-                                    val center = (size.width + edgeWidthPx * 2) * animatedProgress - edgeWidthPx
+                                    val center = (size.width + edgeWidthPx * 2) * rawProgress - edgeWidthPx
                                     drawRect(
                                         brush = Brush.horizontalGradient(
                                             colors = listOf(Color.Black, Color.Transparent),

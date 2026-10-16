@@ -15,7 +15,8 @@ import kotlinx.serialization.Serializable
 data class Lyrics(
     val plain: List<String>? = null,
     val synced: List<SyncedLine>? = null,
-    val areFromRemote: Boolean = false
+    val areFromRemote: Boolean = false,
+    val credits: List<String>? = null
 )
 
 @Serializable

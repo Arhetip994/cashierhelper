@@ -767,6 +767,16 @@ object LyricsUtils {
     private val WHOLE_LINE_BRACKET_PATTERN = Regex("""^\s*[\(\[（【〔《](.+?)(?:[\)\]）】〕》]|\s*)$""")
     private val INLINE_BRACKET_PATTERN = Regex("""[\(\[（【〔《]([^\)\]）】〕》]+)(?:[\)\]）】〕》]|$)""")
 
+    private val LYRICS_CREDIT_REGEX = Regex(
+        """^\s*(written by|lyrics by|words by|music by|composed by|produced by|arranged by|songwriters?|lyricists?|composers?|synced by|source|provided by|recorded by|mixed by|mastered by|author|авторы?|слова|музыка|композитор|текст песни)\s*[:：].*$""",
+        RegexOption.IGNORE_CASE
+    )
+
+    fun isLyricsCreditLine(text: String): Boolean {
+        val clean = cleanLyricBrackets(text).trim()
+        return LYRICS_CREDIT_REGEX.matches(clean)
+    }
+
     /**
      * Parses a String containing lyrics in LRC or plain-text format.
      * @param lyricsText The raw lyrics text to process.
@@ -796,6 +806,7 @@ object LyricsUtils {
 
         val syncedLines = mutableListOf<SyncedLine>()
         val plainLines = mutableListOf<String>()
+        val creditLines = mutableListOf<String>()
         var isSynced = false
 
         lyricsText.lines().forEach { rawLine ->
@@ -804,7 +815,6 @@ object LyricsUtils {
 
             val lineMatcher = LRC_LINE_REGEX.matcher(line)
             if (lineMatcher.matches()) {
-                isSynced = true
                 val minutes = lineMatcher.group(1)?.toLong() ?: 0
                 val seconds = lineMatcher.group(2)?.toLong() ?: 0
                 val fraction = lineMatcher.group(3)?.toLong() ?: 0
@@ -814,6 +824,12 @@ object LyricsUtils {
                 val textWithTags = rawTextWithTags.replace("{bg}", "").replace(Regex("\\{agent:[^}]+\\}"), "").trim()
                 val text = stripLrcTimestamps(textWithTags)
 
+                if (isLyricsCreditLine(text)) {
+                    creditLines.add(cleanLyricBrackets(text))
+                    return@forEach
+                }
+
+                isSynced = true
                 val isWholeLineBracket = WHOLE_LINE_BRACKET_PATTERN.matches(text.trim())
                 if (isWholeLineBracket) {
                     isBackground = true
@@ -1030,7 +1046,7 @@ object LyricsUtils {
                     if (!line.translation.isNullOrEmpty()) append("\n").append(line.translation)
                 }
             }
-            Lyrics(synced = pairedLines, plain = plainVersion)
+            Lyrics(synced = pairedLines, plain = plainVersion, credits = creditLines.takeIf { it.isNotEmpty() })
         } else {
             val processedPlain = plainLines.map { line ->
                 val romanized = when {
@@ -1128,6 +1144,7 @@ object LyricsUtils {
             // Plain text: strip all <…> tokens
             val plainText = KUGOU_WORD_PATTERN.toRegex().replace(body) { it.groupValues[4] }.trim()
             if (plainText.isEmpty() && words.isEmpty()) continue
+            if (isLyricsCreditLine(plainText)) continue
 
             syncedLines.add(
                 SyncedLine(
