@@ -736,6 +736,20 @@ fun AppNavigation(
             }
 
             composable(
+                Screen.SpotifyLogin.route,
+                enterTransition = { enterTransition() },
+                exitTransition = { exitTransition() },
+                popEnterTransition = { popEnterTransition() },
+                popExitTransition = { popExitTransition() },
+            ) {
+                ScreenWrapper(navController = navController, playerViewModel = playerViewModel) {
+                    com.unshoo.pixelmusic.presentation.screens.lossless.SpotifyLoginScreen(
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+            }
+
+            composable(
                 Screen.CloudDownloads.route,
                 enterTransition = { enterTransition() },
                 exitTransition = { exitTransition() },
@@ -760,7 +774,6 @@ fun AppNavigation(
                 ScreenWrapper(navController = navController, playerViewModel = playerViewModel) {
                     com.unshoo.pixelmusic.presentation.screens.ImportSyncScreen(
                         navController = navController,
-                        playlistViewModel = hiltViewModel(),
                         onBackClick = { navController.popBackStack() }
                     )
                 }

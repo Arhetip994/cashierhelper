@@ -12,11 +12,14 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,40 +40,49 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FileOpen
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Login
 import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SwapHoriz
-import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -88,51 +100,61 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import com.unshoo.pixelmusic.R
+import com.unshoo.pixelmusic.data.importer.AccountImportSource
+import com.unshoo.pixelmusic.data.importer.AccountPlaylist
 import com.unshoo.pixelmusic.presentation.components.CollapsibleCommonTopBar
 import com.unshoo.pixelmusic.presentation.components.MiniPlayerHeight
 import com.unshoo.pixelmusic.presentation.navigation.Screen
-import com.unshoo.pixelmusic.presentation.viewmodel.PlaylistViewModel
+import com.unshoo.pixelmusic.presentation.viewmodel.ImportSyncUiState
+import com.unshoo.pixelmusic.presentation.viewmodel.ImportSyncViewModel
+import com.unshoo.pixelmusic.presentation.viewmodel.ImportTab
 import com.unshoo.pixelmusic.ui.theme.GoogleSansRounded
 import kotlinx.coroutines.launch
-import androidx.compose.ui.res.stringResource
-import com.unshoo.pixelmusic.R
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import kotlin.math.roundToInt
-
-data class ImportServiceItem(
-    val name: String,
-    val subtitle: String,
-    val brandColor: Color,
-    val iconVector: ImageVector,
-    val placeholder: String
-)
 
 @Composable
 fun ImportSyncScreen(
     navController: NavController,
-    playlistViewModel: PlaylistViewModel,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    viewModel: ImportSyncViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
     val lazyListState = rememberLazyListState()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    val importProgress by playlistViewModel.importProgress.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Refresh accounts on returning from login webviews
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshAuthStates()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     var urlInput by rememberSaveable { mutableStateOf("") }
-    var isImportingLocal by remember { mutableStateOf(false) }
-    var lastImportedPlaylistId by remember { mutableStateOf<String?>(null) }
-    var statusMessage by remember { mutableStateOf<String?>(null) }
-    var isError by remember { mutableStateOf(false) }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -146,34 +168,18 @@ fun ImportSyncScreen(
                 val fallbackTitle = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.')
                     ?: context.getString(R.string.import_dialog_title)
 
-                isImportingLocal = true
-                statusMessage = context.getString(R.string.import_status_reading_csv)
-                isError = false
-
-                playlistViewModel.importCsvContent(
+                viewModel.importCsv(
                     content = text,
                     fallbackTitle = fallbackTitle,
-                    onProgress = { current, total ->
-                        statusMessage = context.getString(R.string.import_status_progress, current, total)
-                    },
                     onSuccess = { playlistId ->
-                        isImportingLocal = false
-                        lastImportedPlaylistId = playlistId
-                        statusMessage = context.getString(R.string.import_status_success)
                         Toast.makeText(context, context.getString(R.string.import_finished_toast), Toast.LENGTH_SHORT).show()
                     },
                     onError = { err ->
-                        isImportingLocal = false
-                        isError = true
-                        statusMessage = err
                         Toast.makeText(context, err, Toast.LENGTH_LONG).show()
                     }
                 )
             } catch (e: Exception) {
-                isImportingLocal = false
-                isError = true
-                statusMessage = e.message ?: context.getString(R.string.import_file_error)
-                Toast.makeText(context, statusMessage, Toast.LENGTH_LONG).show()
+                Toast.makeText(context, e.message ?: context.getString(R.string.import_file_error), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -226,58 +232,6 @@ fun ImportSyncScreen(
 
     val currentTopBarHeightDp = with(density) { topBarHeight.value.toDp() }
 
-    val detectedService = remember(urlInput) {
-        val trimmed = urlInput.trim().lowercase()
-        when {
-            trimmed.contains("yandex") -> "Яндекс Музыка" to Color(0xFFFC3F1D)
-            trimmed.contains("spotify") -> "Spotify" to Color(0xFF1DB954)
-            trimmed.contains("music.apple.com") -> "Apple Music" to Color(0xFFFA2D48)
-            trimmed.contains("deezer") -> "Deezer" to Color(0xFFA238FF)
-            trimmed.contains("youtube.com") || trimmed.contains("youtu.be") -> "YouTube Music" to Color(0xFFFF0000)
-            else -> null
-        }
-    }
-
-    val services = remember(context) {
-        listOf(
-            ImportServiceItem(
-                name = context.getString(R.string.import_yandex_music),
-                subtitle = context.getString(R.string.import_yandex_subtitle),
-                brandColor = Color(0xFFFC3F1D),
-                iconVector = Icons.Rounded.MusicNote,
-                placeholder = "https://music.yandex.ru/users/.../playlists/..."
-            ),
-            ImportServiceItem(
-                name = context.getString(R.string.import_spotify),
-                subtitle = context.getString(R.string.import_spotify_subtitle),
-                brandColor = Color(0xFF1DB954),
-                iconVector = Icons.Rounded.Link,
-                placeholder = "https://open.spotify.com/playlist/..."
-            ),
-            ImportServiceItem(
-                name = context.getString(R.string.import_apple_music),
-                subtitle = context.getString(R.string.import_apple_subtitle),
-                brandColor = Color(0xFFFA2D48),
-                iconVector = Icons.Rounded.Link,
-                placeholder = "https://music.apple.com/playlist/..."
-            ),
-            ImportServiceItem(
-                name = context.getString(R.string.import_deezer),
-                subtitle = context.getString(R.string.import_deezer_subtitle),
-                brandColor = Color(0xFFA238FF),
-                iconVector = Icons.Rounded.Link,
-                placeholder = "https://www.deezer.com/playlist/..."
-            ),
-            ImportServiceItem(
-                name = context.getString(R.string.import_youtube_music),
-                subtitle = context.getString(R.string.import_youtube_subtitle),
-                brandColor = Color(0xFFFF0000),
-                iconVector = Icons.Rounded.Link,
-                placeholder = "https://music.youtube.com/playlist?list=..."
-            )
-        )
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -290,38 +244,87 @@ fun ImportSyncScreen(
                 top = currentTopBarHeightDp + 8.dp,
                 start = 16.dp,
                 end = 16.dp,
-                bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+                bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 80.dp
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Hero Banner
+            // Mode Switcher Tab Row
             item {
-                ImportHeroCard()
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        val isAccounts = uiState.currentTab == ImportTab.ACCOUNTS
+                        Surface(
+                            onClick = { viewModel.selectTab(ImportTab.ACCOUNTS) },
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isAccounts) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 12.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.SwapHoriz,
+                                    contentDescription = null,
+                                    tint = if (isAccounts) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = stringResource(R.string.import_tab_accounts),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = if (isAccounts) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isAccounts) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        val isLink = uiState.currentTab == ImportTab.LINK_OR_FILE
+                        Surface(
+                            onClick = { viewModel.selectTab(ImportTab.LINK_OR_FILE) },
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isLink) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 12.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Link,
+                                    contentDescription = null,
+                                    tint = if (isLink) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = stringResource(R.string.import_tab_link),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = if (isLink) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isLink) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
-            // Live Progress / Status Card
-            val isBusy = isImportingLocal || importProgress.isImporting
-            if (isBusy || statusMessage != null) {
+            // Live Import Progress Banner (if importing or recently finished)
+            if (uiState.isImporting || uiState.statusMessage != null || uiState.errorMessage != null) {
                 item {
-                    val defaultMatching = stringResource(R.string.import_status_matching)
-                    val importedCountFormat = stringResource(R.string.import_status_progress_imported)
-                    ImportStatusCard(
-                        isBusy = isBusy,
-                        progressText = if (isBusy) {
-                            if (importProgress.totalTracks > 0) {
-                                String.format(importedCountFormat, importProgress.currentTrackIndex, importProgress.totalTracks)
-                            } else {
-                                statusMessage ?: defaultMatching
-                            }
-                        } else {
-                            statusMessage.orEmpty()
-                        },
-                        playlistName = importProgress.playlistName,
-                        progressFraction = if (importProgress.totalTracks > 0) {
-                            importProgress.currentTrackIndex.toFloat() / importProgress.totalTracks.toFloat()
-                        } else 0f,
-                        isError = isError,
-                        lastPlaylistId = lastImportedPlaylistId,
+                    ImportProgressCard(
+                        uiState = uiState,
                         onOpenPlaylist = { id ->
                             navController.navigate(Screen.PlaylistDetail.createRoute(id))
                         }
@@ -329,297 +332,156 @@ fun ImportSyncScreen(
                 }
             }
 
-            // Paste Link Card
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = AbsoluteSmoothCornerShape(
-                        cornerRadiusTL = 24.dp, smoothnessAsPercentTL = 60,
-                        cornerRadiusTR = 24.dp, smoothnessAsPercentTR = 60,
-                        cornerRadiusBL = 24.dp, smoothnessAsPercentBL = 60,
-                        cornerRadiusBR = 24.dp, smoothnessAsPercentBR = 60
-                    ),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            if (uiState.currentTab == ImportTab.ACCOUNTS) {
+                // Service Selection Pills (Spotify, Deezer, YouTube Music)
+                item {
+                    ServiceSelectionSection(
+                        uiState = uiState,
+                        onSelectService = { source -> viewModel.selectService(source) }
                     )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
+                }
+
+                val isCurrentLoggedIn = when (uiState.selectedService) {
+                    AccountImportSource.SPOTIFY -> uiState.isSpotifyLoggedIn
+                    AccountImportSource.DEEZER -> uiState.isDeezerLoggedIn
+                    AccountImportSource.YOUTUBE_MUSIC -> uiState.isYouTubeLoggedIn
+                }
+
+                if (!isCurrentLoggedIn) {
+                    // Connect Card for the selected service
+                    item {
+                        ServiceConnectCard(
+                            source = uiState.selectedService,
+                            onConnect = {
+                                when (uiState.selectedService) {
+                                    AccountImportSource.SPOTIFY -> navController.navigate(Screen.SpotifyLogin.route)
+                                    AccountImportSource.DEEZER -> navController.navigate(Screen.DeezerLogin.route)
+                                    AccountImportSource.YOUTUBE_MUSIC -> navController.navigate(Screen.YoutubeAuth.route)
+                                }
+                            }
+                        )
+                    }
+                } else {
+                    // User Profile / Connected Header
+                    item {
+                        ConnectedAccountHeader(
+                            source = uiState.selectedService,
+                            uiState = uiState,
+                            onRefresh = { viewModel.loadPlaylistsForService(uiState.selectedService) },
+                            onLogout = { viewModel.logout(uiState.selectedService) }
+                        )
+                    }
+
+                    // Selection Control Bar
+                    if (uiState.playlists.isNotEmpty()) {
+                        item {
+                            SelectionControlBar(
+                                totalCount = uiState.playlists.size,
+                                selectedCount = uiState.selectedPlaylistIds.size,
+                                onSelectAll = { selectAll -> viewModel.selectAll(selectAll) }
+                            )
+                        }
+                    }
+
+                    // Playlists or Loading Indicator
+                    if (uiState.isLoadingPlaylists) {
+                        item {
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                    .fillMaxWidth()
+                                    .padding(vertical = 40.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Link,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.import_link_card_title),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = GoogleSansRounded
-                                )
-                                Text(
-                                    text = stringResource(R.string.import_link_card_subtitle),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                CircularProgressIndicator()
                             }
                         }
-
-                        OutlinedTextField(
-                            value = urlInput,
-                            onValueChange = { urlInput = it },
-                            placeholder = { Text(stringResource(R.string.import_link_placeholder)) },
-                            singleLine = true,
-                            enabled = !isBusy,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                            ),
-                            trailingIcon = {
-                                IconButton(
-                                    onClick = {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                        val clip = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()
-                                        if (!clip.isNullOrBlank()) {
-                                            urlInput = clip.trim()
-                                        }
-                                    },
-                                    enabled = !isBusy
-                                ) {
-                                    Icon(Icons.Rounded.ContentPaste, contentDescription = stringResource(R.string.import_paste_button))
-                                }
-                            }
-                        )
-
-                        // Service Detection Pill
-                        if (detectedService != null) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(detectedService.second.copy(alpha = 0.15f))
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(detectedService.second)
-                                )
-                                Text(
-                                    text = stringResource(R.string.import_detected_prefix, detectedService.first),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = detectedService.second
-                                )
-                            }
+                    } else if (uiState.playlists.isEmpty()) {
+                        item {
+                            EmptyPlaylistsCard()
                         }
-
-                        val fetchingInfoStatus = stringResource(R.string.import_status_fetching)
-                        val trackProgressFormat = stringResource(R.string.import_status_progress)
-                        val importSuccessToast = stringResource(R.string.import_status_success)
-                        val importDoneToast = stringResource(R.string.import_finished_toast)
-
-                        Button(
-                            onClick = {
-                                if (urlInput.isNotBlank()) {
-                                    isImportingLocal = true
-                                    isError = false
-                                    statusMessage = fetchingInfoStatus
-                                    lastImportedPlaylistId = null
-
-                                    playlistViewModel.importExternalPlaylist(
-                                        url = urlInput,
-                                        onProgress = { current, total ->
-                                            statusMessage = String.format(trackProgressFormat, current, total)
-                                        },
-                                        onSuccess = { playlistId ->
-                                            isImportingLocal = false
-                                            lastImportedPlaylistId = playlistId
-                                            statusMessage = importSuccessToast
-                                            Toast.makeText(context, importDoneToast, Toast.LENGTH_SHORT).show()
-                                        },
-                                        onError = { err ->
-                                            isImportingLocal = false
-                                            isError = true
-                                            statusMessage = err
-                                            Toast.makeText(context, err, Toast.LENGTH_LONG).show()
-                                        }
-                                    )
-                                }
-                            },
-                            enabled = urlInput.isNotBlank() && !isBusy,
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(50.dp)
-                        ) {
-                            if (isBusy) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.onPrimary
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(stringResource(R.string.import_btn_loading))
-                            } else {
-                                Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(stringResource(R.string.import_btn_start), fontWeight = FontWeight.Bold)
-                            }
+                    } else {
+                        items(
+                            items = uiState.playlists,
+                            key = { "${uiState.selectedService.id}_${it.id}" }
+                        ) { playlist ->
+                            AccountPlaylistRow(
+                                playlist = playlist,
+                                isSelected = playlist.id in uiState.selectedPlaylistIds,
+                                isBusy = uiState.isImporting,
+                                onToggle = { viewModel.togglePlaylistSelection(playlist.id) },
+                                onImportSingle = { viewModel.importSinglePlaylist(playlist) }
+                            )
                         }
                     }
                 }
-            }
-
-            // CSV / TuneMyMusic File Import Card
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = AbsoluteSmoothCornerShape(
-                        cornerRadiusTL = 24.dp, smoothnessAsPercentTL = 60,
-                        cornerRadiusTR = 24.dp, smoothnessAsPercentTR = 60,
-                        cornerRadiusBL = 24.dp, smoothnessAsPercentBL = 60,
-                        cornerRadiusBR = 24.dp, smoothnessAsPercentBR = 60
-                    ),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            } else {
+                // LINK OR FILE TAB (Legacy functionality preserved)
+                item {
+                    LinkImportSection(
+                        urlInput = urlInput,
+                        onUrlChange = { urlInput = it },
+                        isBusy = uiState.isImporting,
+                        onImport = { url ->
+                            viewModel.importExternalUrl(
+                                url = url,
+                                onSuccess = { Toast.makeText(context, context.getString(R.string.import_finished_toast), Toast.LENGTH_SHORT).show() },
+                                onError = { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                            )
+                        }
                     )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Description,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.tertiary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
+                }
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(R.string.import_csv_card_title),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = GoogleSansRounded
-                            )
-                            Text(
-                                text = stringResource(R.string.import_csv_card_subtitle),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                item {
+                    CsvImportSection(
+                        isBusy = uiState.isImporting,
+                        onPickFile = { filePicker.launch(arrayOf("text/comma-separated-values", "text/csv", "text/plain", "*/*")) }
+                    )
+                }
 
-                        FilledTonalButton(
-                            onClick = { filePicker.launch(arrayOf("text/comma-separated-values", "text/csv", "text/plain", "*/*")) },
-                            enabled = !isBusy,
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(Icons.Rounded.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(stringResource(R.string.import_csv_pick_button))
-                        }
-                    }
+                item {
+                    InstructionsSection()
                 }
             }
+        }
 
-            // Supported Platforms Section Header
-            item {
+        // Floating Batch Import Button when items are selected in ACCOUNTS tab
+        val selectedCount = uiState.selectedPlaylistIds.size
+        AnimatedVisibility(
+            visible = uiState.currentTab == ImportTab.ACCOUNTS && selectedCount > 0,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(
+                    bottom = MiniPlayerHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
+                    start = 20.dp,
+                    end = 20.dp
+                )
+        ) {
+            Button(
+                onClick = { viewModel.importSelectedPlaylists() },
+                enabled = !uiState.isImporting,
+                shape = RoundedCornerShape(20.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(uiState.selectedService.brandColorHex)
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                    contentDescription = null,
+                    tint = Color.White
+                )
+                Spacer(Modifier.width(10.dp))
                 Text(
-                    text = stringResource(R.string.import_supported_platforms_title),
-                    style = MaterialTheme.typography.titleLarge,
+                    text = stringResource(R.string.import_selected_button, selectedCount),
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = GoogleSansRounded,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(start = 4.dp, top = 8.dp)
+                    color = Color.White
                 )
-            }
-
-            // Platform Cards
-            items(
-                count = services.size,
-                key = { services[it].name }
-            ) { index ->
-                val service = services[index]
-                PlatformCard(
-                    service = service,
-                    onClick = {
-                        urlInput = service.placeholder
-                    }
-                )
-            }
-
-            // Instructions / Tips
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                Icons.Rounded.HelpOutline,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = stringResource(R.string.import_how_it_works_title),
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Text(
-                            text = stringResource(R.string.import_how_it_works_desc),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 18.sp
-                        )
-                    }
-                }
             }
         }
 
@@ -634,93 +496,453 @@ fun ImportSyncScreen(
 }
 
 @Composable
-private fun ImportHeroCard() {
-    val primary = MaterialTheme.colorScheme.primary
-    val secondary = MaterialTheme.colorScheme.tertiary
-    val gradient = remember(primary, secondary) {
-        Brush.linearGradient(listOf(primary, secondary))
+private fun ServiceSelectionSection(
+    uiState: ImportSyncUiState,
+    onSelectService: (AccountImportSource) -> Unit
+) {
+    val services = listOf(
+        AccountImportSource.SPOTIFY to uiState.isSpotifyLoggedIn,
+        AccountImportSource.DEEZER to uiState.isDeezerLoggedIn,
+        AccountImportSource.YOUTUBE_MUSIC to uiState.isYouTubeLoggedIn
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        services.forEach { (source, isConnected) ->
+            val isSelected = uiState.selectedService == source
+            val brandColor = Color(source.brandColorHex)
+
+            Surface(
+                onClick = { onSelectService(source) },
+                shape = RoundedCornerShape(18.dp),
+                color = if (isSelected) brandColor.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, brandColor) else null,
+                modifier = Modifier.weight(1f)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 14.dp, horizontal = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(brandColor.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val icon = when (source) {
+                            AccountImportSource.SPOTIFY -> Icons.Rounded.MusicNote
+                            AccountImportSource.DEEZER -> Icons.Rounded.QueueMusic
+                            AccountImportSource.YOUTUBE_MUSIC -> Icons.Rounded.QueueMusic
+                        }
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = brandColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Text(
+                        text = source.displayName,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isConnected) brandColor.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isConnected) brandColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                            )
+                            Text(
+                                text = if (isConnected) "Подключен" else "Войти",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isConnected) brandColor else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun ServiceConnectCard(
+    source: AccountImportSource,
+    onConnect: () -> Unit
+) {
+    val brandColor = Color(source.brandColorHex)
+    val gradient = Brush.linearGradient(listOf(brandColor, brandColor.copy(alpha = 0.6f)))
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = AbsoluteSmoothCornerShape(
-            cornerRadiusTL = 28.dp, smoothnessAsPercentTL = 60,
-            cornerRadiusTR = 28.dp, smoothnessAsPercentTR = 60,
-            cornerRadiusBL = 28.dp, smoothnessAsPercentBL = 60,
-            cornerRadiusBR = 28.dp, smoothnessAsPercentBR = 60
-        ),
+        shape = AbsoluteSmoothCornerShape(26.dp, 60),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+            containerColor = brandColor.copy(alpha = 0.12f)
         )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(gradient),
+                contentAlignment = Alignment.Center
             ) {
+                Icon(
+                    imageVector = Icons.Rounded.Login,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+
+            Text(
+                text = stringResource(R.string.import_connect_service_desc, source.displayName),
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = GoogleSansRounded,
+                color = MaterialTheme.colorScheme.onSurface,
+                lineHeight = 20.sp
+            )
+
+            Button(
+                onClick = onConnect,
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = brandColor),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                Icon(Icons.Rounded.AccountCircle, contentDescription = null, tint = Color.White)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.import_account_connect),
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectedAccountHeader(
+    source: AccountImportSource,
+    uiState: ImportSyncUiState,
+    onRefresh: () -> Unit,
+    onLogout: () -> Unit
+) {
+    val profile = when (source) {
+        AccountImportSource.SPOTIFY -> uiState.spotifyProfile
+        AccountImportSource.DEEZER -> uiState.deezerProfile
+        AccountImportSource.YOUTUBE_MUSIC -> uiState.youTubeProfile
+    }
+    val brandColor = Color(source.brandColorHex)
+
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (profile?.avatarUrl != null) {
+                AsyncImage(
+                    model = profile.avatarUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
-                        .background(gradient),
+                        .background(brandColor.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.SwapHoriz,
+                        imageVector = Icons.Rounded.AccountCircle,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = brandColor,
                         modifier = Modifier.size(26.dp)
-                    )
-                }
-
-                Column {
-                    Text(
-                        text = stringResource(R.string.import_sync_hero_title),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = GoogleSansRounded
-                    )
-                    Text(
-                        text = stringResource(R.string.import_sync_hero_subtitle),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = profile?.username ?: "${source.displayName} Account",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = GoogleSansRounded,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = stringResource(R.string.import_connected_as, source.displayName),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            IconButton(onClick = onRefresh) {
+                Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.import_account_refresh))
+            }
+
+            IconButton(onClick = onLogout) {
+                Icon(Icons.Rounded.Login, contentDescription = stringResource(R.string.import_account_disconnect), tint = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectionControlBar(
+    totalCount: Int,
+    selectedCount: Int,
+    onSelectAll: (Boolean) -> Unit
+) {
+    val isAllSelected = selectedCount == totalCount && totalCount > 0
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable { onSelectAll(!isAllSelected) }
+        ) {
+            Checkbox(
+                checked = isAllSelected,
+                onCheckedChange = { onSelectAll(it) },
+                colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+            )
+            Spacer(Modifier.width(6.dp))
             Text(
-                text = stringResource(R.string.import_sync_hero_desc),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-                lineHeight = 20.sp
+                text = stringResource(R.string.import_select_all),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest
+        ) {
+            Text(
+                text = "$selectedCount / $totalCount",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
             )
         }
     }
 }
 
 @Composable
-private fun ImportStatusCard(
+private fun AccountPlaylistRow(
+    playlist: AccountPlaylist,
+    isSelected: Boolean,
     isBusy: Boolean,
-    progressText: String,
-    playlistName: String,
-    progressFraction: Float,
-    isError: Boolean,
-    lastPlaylistId: String?,
+    onToggle: () -> Unit,
+    onImportSingle: () -> Unit
+) {
+    val containerColor by animateColorAsState(
+        targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+        else MaterialTheme.colorScheme.surfaceContainerHigh,
+        label = "rowContainer"
+    )
+
+    Surface(
+        onClick = onToggle,
+        shape = RoundedCornerShape(16.dp),
+        color = containerColor,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Checkbox(
+                checked = isSelected,
+                onCheckedChange = { onToggle() },
+                colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+            )
+
+            // Artwork
+            if (playlist.isLikedSongs) {
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFFE91E63), Color(0xFF9C27B0))
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Favorite,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+            } else if (!playlist.coverUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = playlist.coverUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MusicNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = playlist.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontFamily = GoogleSansRounded,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = if (playlist.ownerName != null) {
+                        "${stringResource(R.string.import_tracks_count, playlist.trackCount)} • ${playlist.ownerName}"
+                    } else {
+                        stringResource(R.string.import_tracks_count, playlist.trackCount)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            FilledTonalButton(
+                onClick = onImportSingle,
+                enabled = !isBusy,
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.height(36.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.import_single_button),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyPlaylistsCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.QueueMusic,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(48.dp)
+            )
+            Text(
+                text = stringResource(R.string.import_no_playlists_found),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImportProgressCard(
+    uiState: ImportSyncUiState,
     onOpenPlaylist: (String) -> Unit
 ) {
+    val isBusy = uiState.isImporting
+    val isError = uiState.errorMessage != null
+    val lastId = uiState.lastImportedPlaylistId
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = when {
-                isError -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)
-                lastPlaylistId != null -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                else -> MaterialTheme.colorScheme.surfaceVariant
+                isError -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
+                lastId != null && !isBusy -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                else -> MaterialTheme.colorScheme.surfaceContainerHigh
             }
         )
     ) {
@@ -735,17 +957,17 @@ private fun ImportStatusCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 if (isBusy) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.5.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
                 } else if (isError) {
                     Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                } else if (lastPlaylistId != null) {
+                } else if (lastId != null) {
                     Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
-                    if (playlistName.isNotBlank()) {
+                    if (!uiState.currentImportingPlaylistTitle.isNullOrBlank()) {
                         Text(
-                            text = playlistName,
+                            text = uiState.currentImportingPlaylistTitle,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -753,15 +975,15 @@ private fun ImportStatusCard(
                         )
                     }
                     Text(
-                        text = progressText,
+                        text = uiState.errorMessage ?: uiState.statusMessage.orEmpty(),
                         style = MaterialTheme.typography.bodySmall,
                         color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                if (lastPlaylistId != null && !isBusy) {
+                if (lastId != null && !isBusy) {
                     Button(
-                        onClick = { onOpenPlaylist(lastPlaylistId) },
+                        onClick = { onOpenPlaylist(lastId) },
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(stringResource(R.string.import_open_button))
@@ -769,9 +991,10 @@ private fun ImportStatusCard(
                 }
             }
 
-            if (isBusy) {
+            if (isBusy && uiState.totalTracksProgress > 0) {
+                val fraction = uiState.currentTrackProgress.toFloat() / uiState.totalTracksProgress.toFloat()
                 LinearProgressIndicator(
-                    progress = { if (progressFraction > 0f) progressFraction else 0f },
+                    progress = { fraction.coerceIn(0f, 1f) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp)
@@ -783,62 +1006,197 @@ private fun ImportStatusCard(
 }
 
 @Composable
-private fun PlatformCard(
-    service: ImportServiceItem,
-    onClick: () -> Unit
+private fun LinkImportSection(
+    urlInput: String,
+    onUrlChange: (String) -> Unit,
+    isBusy: Boolean,
+    onImport: (String) -> Unit
 ) {
-    Surface(
-        onClick = onClick,
-        shape = AbsoluteSmoothCornerShape(
-            cornerRadiusTL = 20.dp, smoothnessAsPercentTL = 60,
-            cornerRadiusTR = 20.dp, smoothnessAsPercentTR = 60,
-            cornerRadiusBL = 20.dp, smoothnessAsPercentBL = 60,
-            cornerRadiusBR = 20.dp, smoothnessAsPercentBR = 60
-        ),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth()
+    val context = LocalContext.current
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = AbsoluteSmoothCornerShape(24.dp, 60),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Link,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Column {
+                    Text(
+                        text = stringResource(R.string.import_link_card_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = GoogleSansRounded
+                    )
+                    Text(
+                        text = stringResource(R.string.import_link_card_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                value = urlInput,
+                onValueChange = onUrlChange,
+                placeholder = { Text(stringResource(R.string.import_link_placeholder)) },
+                singleLine = true,
+                enabled = !isBusy,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                trailingIcon = {
+                    IconButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            val clip = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()
+                            if (!clip.isNullOrBlank()) {
+                                onUrlChange(clip.trim())
+                            }
+                        },
+                        enabled = !isBusy
+                    ) {
+                        Icon(Icons.Rounded.ContentPaste, contentDescription = stringResource(R.string.import_paste_button))
+                    }
+                }
+            )
+
+            Button(
+                onClick = { onImport(urlInput) },
+                enabled = urlInput.isNotBlank() && !isBusy,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                if (isBusy) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.width(10.dp))
+                    Text(stringResource(R.string.import_btn_loading))
+                } else {
+                    Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.import_btn_start), fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CsvImportSection(
+    isBusy: Boolean,
+    onPickFile: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = AbsoluteSmoothCornerShape(24.dp, 60),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(20.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
-                    .background(service.brandColor.copy(alpha = 0.15f)),
+                    .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)),
                 contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(16.dp)
-                        .clip(CircleShape)
-                        .background(service.brandColor)
+                Icon(
+                    imageVector = Icons.Rounded.Description,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(24.dp)
                 )
             }
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = service.name,
+                    text = stringResource(R.string.import_csv_card_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     fontFamily = GoogleSansRounded
                 )
                 Text(
-                    text = service.subtitle,
+                    text = stringResource(R.string.import_csv_card_subtitle),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            Icon(
-                imageVector = Icons.Rounded.ContentPaste,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.size(20.dp)
+            FilledTonalButton(
+                onClick = onPickFile,
+                enabled = !isBusy,
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Rounded.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.import_csv_pick_button))
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstructionsSection() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.HelpOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = stringResource(R.string.import_how_it_works_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = stringResource(R.string.import_how_it_works_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 18.sp
             )
         }
     }

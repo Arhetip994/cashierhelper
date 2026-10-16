@@ -322,4 +322,24 @@
     <string name="import_link_label">Ссылка</string>
     <string name="import_file_error">Ошибка чтения файла</string>
     <string name="import_finished_toast">Импорт завершен!</string>
+    <string name="import_batch_completed">Успешно импортировано %1$d плейлистов!</string>
+    <string name="spotify_login_title">Вход в Spotify</string>
+    <string name="spotify_login_subtitle">Авторизуйтесь в Spotify для импорта ваших плейлистов и треков</string>
+    <string name="spotify_manual_sp_dc">sp_dc cookie (Необязательно)</string>
+    <string name="spotify_manual_sp_dc_hint">Вставьте значение cookie sp_dc, если страница не завершает вход</string>
+    <string name="spotify_manual_sp_dc_apply">Применить cookie</string>
+    <string name="spotify_cookie_invalid">Неверный cookie sp_dc или сессия истекла</string>
+    <string name="spotify_login_success">Успешный вход: %1$s</string>
+    <string name="import_tab_accounts">Синхронизация аккаунтов</string>
+    <string name="import_tab_link">По ссылке / Файл</string>
+    <string name="import_account_connect">Войти через аккаунт</string>
+    <string name="import_account_disconnect">Выйти</string>
+    <string name="import_account_refresh">Обновить</string>
+    <string name="import_select_all">Выбрать все</string>
+    <string name="import_selected_button">Импортировать выбранное (%1$d)</string>
+    <string name="import_single_button">Импорт</string>
+    <string name="import_no_playlists_found">Плейлисты не найдены</string>
+    <string name="import_connect_service_desc">Войдите в свой аккаунт %1$s для автоматического просмотра и переноса ваших плейлистов и любимых треков.</string>
+    <string name="import_connected_as">Вы вошли как: %1$s</string>
+    <string name="import_tracks_count">%1$d треков</string>
 </resources>

@@ -445,6 +445,7 @@ class PlayerViewModel @Inject constructor(
             userPreferencesRepository.setStreamingAudioQualityWifi(quality)
             userPreferencesRepository.setStreamingAudioQualityMobile(quality)
             com.unshoo.pixelmusic.data.remote.youtube.YoutubeHelper.clearStreamCache()
+            dualPlayerEngine.clearResolvedUriCache()
 
             // Seamlessly refresh current playing track if online stream
             val currentSong = stablePlayerState.value.currentSong
@@ -452,14 +453,19 @@ class PlayerViewModel @Inject constructor(
                 val controller = mediaController ?: return@launch
                 val currentIndex = controller.currentMediaItemIndex
                 if (currentIndex >= 0 && currentIndex < controller.mediaItemCount) {
-                    val currentItem = controller.getMediaItemAt(currentIndex)
                     val currentPos = controller.currentPosition.coerceAtLeast(0L)
                     val wasPlaying = controller.isPlaying
-                    controller.replaceMediaItem(currentIndex, currentItem)
+                    val freshItem = MediaItemBuilder.build(currentSong)
+                    val resolvedItem = runCatching {
+                        dualPlayerEngine.resolveMediaItem(freshItem)
+                    }.getOrDefault(freshItem)
+                    controller.replaceMediaItem(currentIndex, resolvedItem)
                     controller.seekTo(currentIndex, currentPos)
                     if (wasPlaying) {
                         controller.play()
                     }
+                    preparePlaybackAudioMetadataForMedia(currentSong.id)
+                    refreshPlaybackAudioMetadata(controller)
                 }
             }
         }
@@ -5034,9 +5040,18 @@ class PlayerViewModel @Inject constructor(
 
             // Online YouTube / JioSaavn song check in LRU caches
             val videoId = song.youtubeId ?: cleanMediaId
-            val ytBitrate: Int? = com.unshoo.pixelmusic.data.remote.youtube.YoutubeHelper.streamBitrateLruCache.get("${videoId}_high")
-                ?.takeIf { it > 65_000 }
-            val ytMime: String? = com.unshoo.pixelmusic.data.remote.youtube.YoutubeHelper.streamMimeTypeLruCache.get("${videoId}_high")
+            val ytBitrate: Int? = com.unshoo.pixelmusic.data.remote.youtube.YoutubeHelper.streamBitrateLruCache.let { cache ->
+                cache.get("${videoId}_high")
+                    ?: cache.get("${videoId}_q160")
+                    ?: cache.get("${videoId}_q96")
+                    ?: cache.snapshot().keys.find { it.startsWith("${videoId}_") }?.let { cache.get(it) }
+            }?.takeIf { it > 30_000 }
+            val ytMime: String? = com.unshoo.pixelmusic.data.remote.youtube.YoutubeHelper.streamMimeTypeLruCache.let { cache ->
+                cache.get("${videoId}_high")
+                    ?: cache.get("${videoId}_q160")
+                    ?: cache.get("${videoId}_q96")
+                    ?: cache.snapshot().keys.find { it.startsWith("${videoId}_") }?.let { cache.get(it) }
+            }
             if (ytMime != null || ytBitrate != null) {
                 val mime = ytMime ?: "audio/webm; codecs=\"opus\""
                 val isOpus = mime.contains("opus", true) || mime.contains("webm", true)

@@ -444,6 +444,13 @@ class DualPlayerEngine @Inject constructor(
         activeResolutions.remove(uriString)?.cancel()
     }
 
+    fun clearResolvedUriCache() {
+        resolvedUriCache.evictAll()
+        activePlaybackResolvedUris.clear()
+        activeResolutions.values.forEach { it.cancel() }
+        activeResolutions.clear()
+    }
+
     private var isReleased = false
     internal val resolvedUriCache = LruCache<String, Uri>(100)
     private val activePlaybackResolvedUris = java.util.concurrent.ConcurrentHashMap<String, Uri>()

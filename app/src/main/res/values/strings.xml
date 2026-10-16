@@ -325,4 +325,24 @@
     <string name="import_link_label">Link</string>
     <string name="import_file_error">Failed to read file</string>
     <string name="import_finished_toast">Import completed!</string>
+    <string name="import_batch_completed">Successfully imported %1$d playlists!</string>
+    <string name="spotify_login_title">Log in to Spotify</string>
+    <string name="spotify_login_subtitle">Sign in to Spotify to access your playlists and liked tracks</string>
+    <string name="spotify_manual_sp_dc">sp_dc cookie (Optional)</string>
+    <string name="spotify_manual_sp_dc_hint">Paste your sp_dc cookie value if the web login does not finish</string>
+    <string name="spotify_manual_sp_dc_apply">Apply Cookie</string>
+    <string name="spotify_cookie_invalid">Invalid or expired sp_dc cookie</string>
+    <string name="spotify_login_success">Logged in as %1$s</string>
+    <string name="import_tab_accounts">Account Transfer</string>
+    <string name="import_tab_link">Link / File</string>
+    <string name="import_account_connect">Connect Account</string>
+    <string name="import_account_disconnect">Disconnect</string>
+    <string name="import_account_refresh">Refresh</string>
+    <string name="import_select_all">Select all</string>
+    <string name="import_selected_button">Import Selected (%1$d)</string>
+    <string name="import_single_button">Import</string>
+    <string name="import_no_playlists_found">No playlists found</string>
+    <string name="import_connect_service_desc">Sign in to your %1$s account to transfer your library playlists and liked songs to PixelMusic.</string>
+    <string name="import_connected_as">Connected as: %1$s</string>
+    <string name="import_tracks_count">%1$d tracks</string>
 </resources>

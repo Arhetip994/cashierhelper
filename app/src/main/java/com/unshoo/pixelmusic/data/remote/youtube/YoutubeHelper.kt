@@ -103,6 +103,7 @@ object YoutubeHelper {
         streamUrlLruCache.evictAll()
         streamMimeTypeLruCache.evictAll()
         streamBitrateLruCache.evictAll()
+        resolvedCandidateUrlCache.clear()
     }
 
     /** Register a locally-available file path for a YouTube video ID so playback is instant. */
