@@ -1652,11 +1652,11 @@ fun SyncedLyricsList(
                 return@LaunchedEffect
             }
 
-            // Tactile smooth spring scrolling (Apple Music physics)
+            // Tactile smooth spring scrolling (Apple Music physics with gentle fluid glide)
             val dynamicAnimationSpec = if (useAnimatedLyrics) {
                 spring<Float>(
-                    stiffness = Spring.StiffnessMediumLow,
-                    dampingRatio = 0.82f
+                    stiffness = Spring.StiffnessLow,
+                    dampingRatio = 0.90f
                 )
             } else {
                 autoscrollAnimationSpec
@@ -1682,18 +1682,16 @@ fun SyncedLyricsList(
                     items = lines,
                     key = { index, item -> "${item.time}_$index" }
                 ) { index, line ->
-                    val nextTime = if (!line.isBackground) {
-                        lines.subList(index + 1, lines.size).firstOrNull { !it.isBackground }?.time
-                            ?: lines.getOrNull(index + 1)?.time
-                            ?: Int.MAX_VALUE
-                    } else {
-                        lines.getOrNull(index + 1)?.time ?: Int.MAX_VALUE
-                    }
+                    val nextTime = lines.subList(index + 1, lines.size).firstOrNull { it.time > line.time }?.time
+                        ?: lines.getOrNull(index + 1)?.time
+                        ?: Int.MAX_VALUE
                     val distanceFromCurrent = if (currentLineIndex != -1) {
-                        if (line.isBackground && index > 0 && !lines[index - 1].isBackground && currentLineIndex == index - 1) {
-                            0
-                        } else {
-                            abs(currentLineIndex - index)
+                        when {
+                            // Subphrase paired with preceding lead line: keep both in focus
+                            line.isBackground && index > 0 && currentLineIndex == index - 1 -> 0
+                            // Lead line paired with following subphrase: keep both in focus
+                            !line.isBackground && index + 1 < lines.size && lines[index + 1].isBackground && currentLineIndex == index + 1 -> 0
+                            else -> abs(currentLineIndex - index)
                         }
                     } else 100
                     
@@ -1810,10 +1808,7 @@ fun LyricLineRow(
     val unhighlightedColor = LocalContentColor.current.copy(alpha = 0.45f)
     val lineColor by animateColorAsState(
         targetValue = if (isCurrentLine) accentColor else unhighlightedColor,
-        animationSpec = if (useAnimatedLyrics) spring(
-            stiffness = Spring.StiffnessVeryLow,
-            dampingRatio = Spring.DampingRatioMediumBouncy
-        ) else tween(durationMillis = 250),
+        animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
         label = "lineColor"
     )
 
@@ -1837,21 +1832,21 @@ fun LyricLineRow(
     val baseTargetAlpha = if (useAnimatedLyrics) when (distanceFromCurrent) {
         0 -> 1.0f; 1 -> 0.65f; 2 -> 0.45f; else -> 0.28f
     } else 1f
-    val targetAlpha = if (line.isBackground) baseTargetAlpha * 0.85f else baseTargetAlpha
+    val targetAlpha = if (line.isBackground) baseTargetAlpha * 0.88f else baseTargetAlpha
 
     val scale by animateFloatAsState(
         targetValue = targetScale,
         animationSpec = if (useAnimatedLyrics) spring(
-            stiffness = Spring.StiffnessVeryLow,
-            dampingRatio = Spring.DampingRatioMediumBouncy
+            stiffness = Spring.StiffnessLow,
+            dampingRatio = Spring.DampingRatioNoBouncy
         ) else tween(durationMillis = 200),
         label = "lineScale"
     )
     val alpha by animateFloatAsState(
         targetValue = targetAlpha,
-        animationSpec = if (useAnimatedLyrics) spring(
-            stiffness = Spring.StiffnessLow,
-            dampingRatio = Spring.DampingRatioNoBouncy
+        animationSpec = if (useAnimatedLyrics) tween(
+            durationMillis = 350,
+            easing = FastOutSlowInEasing
         ) else tween(durationMillis = 200),
         label = "lineAlpha"
     )
@@ -1863,7 +1858,7 @@ fun LyricLineRow(
 
     val blurRadius by animateDpAsState(
         targetValue = targetBlur,
-        animationSpec = if (useAnimatedLyrics) tween(durationMillis = 400) else tween(durationMillis = 200),
+        animationSpec = if (useAnimatedLyrics) tween(durationMillis = 400, easing = FastOutSlowInEasing) else tween(durationMillis = 200),
         label = "lineBlur"
     )
 
@@ -2530,26 +2525,14 @@ internal fun resolveCurrentLineIndex(
 ): Int {
     if (lines.isEmpty()) return -1
 
-    // First search for the active lead vocal line
-    val activeLeadIndex = lines.withIndex().lastOrNull { (index, line) ->
-        if (line.isBackground) return@lastOrNull false
-        val nextLeadTime = lines.subList(index + 1, lines.size).firstOrNull { !it.isBackground }?.time
-            ?: lines.getOrNull(index + 1)?.time
-            ?: Int.MAX_VALUE
-        val lineEndTime = resolveLineEndTimeMs(line, nextLeadTime)
-        position in line.time.toLong()..<lineEndTime
-    }?.index
+    // Anticipate the upcoming line by 250ms so scroll starts smoothly gliding into position
+    val targetPosition = position + 250L
 
-    if (activeLeadIndex != null && activeLeadIndex >= 0) {
-        return activeLeadIndex
+    val activeIndex = lines.indexOfLast { line ->
+        line.time.toLong() <= targetPosition
     }
 
-    // Fallback if only background line is active
-    return lines.withIndex().lastOrNull { (index, line) ->
-        val nextTime = lines.getOrNull(index + 1)?.time ?: Int.MAX_VALUE
-        val lineEndTime = resolveLineEndTimeMs(line, nextTime)
-        position in line.time.toLong()..<lineEndTime
-    }?.index ?: -1
+    return if (activeIndex != -1) activeIndex else 0
 }
 
 @Composable
