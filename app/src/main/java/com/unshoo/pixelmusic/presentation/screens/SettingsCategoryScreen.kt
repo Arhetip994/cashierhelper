@@ -12,6 +12,12 @@ import java.util.Locale
 import java.util.Date
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.draw.rotate
+import com.unshoo.pixelmusic.data.model.OnlineLyricsSource
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 
 import android.content.Context
 import android.content.Intent
@@ -253,6 +259,7 @@ fun SettingsCategoryScreen(
     var syncRequestObservedRunning by remember(categoryId) { mutableStateOf(false) }
     var syncIndicatorLabel by remember(categoryId) { mutableStateOf<String?>(null) }
     var showClearLyricsDialog by remember(categoryId) { mutableStateOf(false) }
+    var showOnlineLyricsPriorityDialog by remember(categoryId) { mutableStateOf(false) }
     var showRebuildDatabaseWarning by remember(categoryId) { mutableStateOf(false) }
     var showRegenerateDailyMixDialog by remember(categoryId) { mutableStateOf(false) }
     var showRegenerateStatsDialog by remember(categoryId) { mutableStateOf(false) }
@@ -716,21 +723,18 @@ fun SettingsCategoryScreen(
                                 title = stringResource(R.string.setcat_lyrics_management),
                                 addBottomSpace = false
                             ) {
-                                ThemeSelectorItem(
-                                    label = stringResource(R.string.setcat_lyrics_source_priority_label),
-                                    description = stringResource(R.string.setcat_lyrics_source_priority_desc),
-                                    options = mapOf(
-                                        LyricsSourcePreference.EMBEDDED_FIRST.name to stringResource(R.string.setcat_lyrics_embedded_first),
-                                        LyricsSourcePreference.API_FIRST.name to stringResource(R.string.setcat_lyrics_online_first),
-                                        LyricsSourcePreference.LOCAL_FIRST.name to stringResource(R.string.setcat_lyrics_local_first)
-                                    ),
-                                    selectedKey = uiState.lyricsSourcePreference.name,
-                                    onSelectionChanged = { key ->
-                                        settingsViewModel.setLyricsSourcePreference(
-                                            LyricsSourcePreference.fromName(key)
-                                        )
-                                    },
-                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_lyrics_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                val currentPriorityList = uiState.onlineLyricsSourcesPriority
+                                val prioritySummary = remember(currentPriorityList) {
+                                    currentPriorityList.mapNotNull { id ->
+                                        OnlineLyricsSource.fromId(id).displayName
+                                    }.joinToString(" → ")
+                                }
+
+                                SettingsItem(
+                                    title = stringResource(R.string.setcat_lyrics_source_priority_label),
+                                    subtitle = prioritySummary,
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_lyrics_24), null, tint = MaterialTheme.colorScheme.secondary) },
+                                    onClick = { showOnlineLyricsPriorityDialog = true }
                                 )
                                 SettingsItem(
                                     title = stringResource(R.string.setcat_reset_imported_lyrics_title),
@@ -2394,6 +2398,195 @@ fun SettingsCategoryScreen(
             onDismissRequest = { showClearLyricsDialog = false },
             confirmButton = { TextButton(onClick = { showClearLyricsDialog = false; playerViewModel.resetAllLyrics() }) { Text(stringResource(R.string.confirm), maxLines = 1, overflow = TextOverflow.Ellipsis) } },
             dismissButton = { TextButton(onClick = { showClearLyricsDialog = false }) { Text(stringResource(R.string.cancel), maxLines = 1, overflow = TextOverflow.Ellipsis) } }
+        )
+    }
+
+    if (showOnlineLyricsPriorityDialog) {
+        var draftOrder by remember(uiState.onlineLyricsSourcesPriority) {
+            mutableStateOf(uiState.onlineLyricsSourcesPriority)
+        }
+
+        AlertDialog(
+            icon = { Icon(painterResource(R.drawable.rounded_lyrics_24), null, tint = MaterialTheme.colorScheme.primary) },
+            title = {
+                Text(
+                    text = stringResource(R.string.setcat_lyrics_source_priority_label),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Explanation info card (Fast response + background upgrade)
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = stringResource(R.string.setcat_lyrics_priority_fastest_first_hint),
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Порядок приоритета (вверху — наивысший):",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        ),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+
+                    draftOrder.forEachIndexed { index, sourceId ->
+                        val source = OnlineLyricsSource.fromId(sourceId)
+                        val isFirst = index == 0
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isFirst) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = if (isFirst) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)) else null,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Surface(
+                                        shape = androidx.compose.foundation.shape.CircleShape,
+                                        color = if (isFirst) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = "${index + 1}",
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isFirst) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    Column {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = source.displayName,
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                                            ) {
+                                                Text(
+                                                    text = source.badge,
+                                                    style = MaterialTheme.typography.labelSmall.copy(
+                                                        fontSize = 10.sp,
+                                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                    ),
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            text = source.description,
+                                            style = MaterialTheme.typography.bodySmall.copy(
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                                fontSize = 11.sp
+                                            ),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            if (index > 0) {
+                                                val mutable = draftOrder.toMutableList()
+                                                val temp = mutable[index]
+                                                mutable[index] = mutable[index - 1]
+                                                mutable[index - 1] = temp
+                                                draftOrder = mutable
+                                                settingsViewModel.setOnlineLyricsSourcesPriority(mutable)
+                                            }
+                                        },
+                                        enabled = index > 0,
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowUpward,
+                                            contentDescription = "Move Up",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            if (index < draftOrder.size - 1) {
+                                                val mutable = draftOrder.toMutableList()
+                                                val temp = mutable[index]
+                                                mutable[index] = mutable[index + 1]
+                                                mutable[index + 1] = temp
+                                                draftOrder = mutable
+                                                settingsViewModel.setOnlineLyricsSourcesPriority(mutable)
+                                            }
+                                        },
+                                        enabled = index < draftOrder.size - 1,
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDownward,
+                                            contentDescription = "Move Down",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            onDismissRequest = { showOnlineLyricsPriorityDialog = false },
+            confirmButton = {
+                TextButton(onClick = { showOnlineLyricsPriorityDialog = false }) {
+                    Text(stringResource(R.string.confirm))
+                }
+            }
         )
     }
 

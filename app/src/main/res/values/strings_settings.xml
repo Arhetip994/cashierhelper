@@ -73,8 +73,10 @@
     <string name="setcat_auto_scan_lrc_title">Auto-scan .lrc files</string>
     <string name="setcat_auto_scan_lrc_subtitle">Automatically scan and assign .lrc files in the same folder during library sync.</string>
     <string name="setcat_lyrics_management">Lyrics Management</string>
-    <string name="setcat_lyrics_source_priority_label">Lyrics Source Priority</string>
-    <string name="setcat_lyrics_source_priority_desc">Choose which source to try first when fetching lyrics.</string>
+    <string name="setcat_lyrics_source_priority_label">Online Lyrics Source Priority</string>
+    <string name="setcat_lyrics_source_priority_desc">Fastest response first with automatic background upgrade to highest quality.</string>
+    <string name="setcat_lyrics_priority_fastest_first_hint">Fastest first + background upgrade: fetches instantly from the quickest provider, then upgrades to higher quality (syllables/word-sync) in the background according to your priority.</string>
+    <string name="lyrics_priority_make_first">Move to #1</string>
     <string name="setcat_lyrics_embedded_first">Embedded First</string>
     <string name="setcat_lyrics_online_first">Online First</string>
     <string name="setcat_lyrics_local_first">Local (.lrc) First</string>

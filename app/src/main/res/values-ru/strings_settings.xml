@@ -55,8 +55,10 @@
     <string name="setcat_auto_scan_lrc_title">Автосканирование .lrc файлов</string>
     <string name="setcat_auto_scan_lrc_subtitle">Автоматически искать и назначать .lrc файлы в той же папке при синхронизации.</string>
     <string name="setcat_lyrics_management">Управление текстами песен</string>
-    <string name="setcat_lyrics_source_priority_label">Приоритет источников текстов</string>
-    <string name="setcat_lyrics_source_priority_desc">Выберите, какой источник пробовать первым при получении текста.</string>
+    <string name="setcat_lyrics_source_priority_label">Приоритет онлайн-источников</string>
+    <string name="setcat_lyrics_source_priority_desc">Мгновенный старт с автоулучшением лучшего качества в фоне.</string>
+    <string name="setcat_lyrics_priority_fastest_first_hint">Принцип работы: мгновенный старт + улучшение в фоне. Сначала моментально берется текст из самого быстрого источника, а затем в фоне подгружается и бесшовно обновляется лучший по качеству текст согласно вашему приоритету.</string>
+    <string name="lyrics_priority_make_first">Сделать первым</string>
     <string name="setcat_lyrics_embedded_first">Сначала встроенные</string>
     <string name="setcat_lyrics_online_first">Сначала онлайн</string>
     <string name="setcat_lyrics_local_first">Сначала локальные (.lrc)</string>

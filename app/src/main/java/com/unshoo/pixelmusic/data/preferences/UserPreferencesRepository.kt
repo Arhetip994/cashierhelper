@@ -304,6 +304,7 @@ constructor(
 
         // Lyrics Source Preference
         val LYRICS_SOURCE_PREFERENCE = stringPreferencesKey("lyrics_source_preference")
+        val ONLINE_LYRICS_SOURCES_PRIORITY = stringPreferencesKey("online_lyrics_sources_priority")
         val AUTO_SCAN_LRC_FILES = booleanPreferencesKey("auto_scan_lrc_files")
 
         // Developer Options
@@ -882,6 +883,24 @@ constructor(
     suspend fun setLyricsSourcePreference(preference: LyricsSourcePreference) {
         dataStore.edit { preferences ->
             preferences[PreferencesKeys.LYRICS_SOURCE_PREFERENCE] = preference.name
+        }
+    }
+
+    val onlineLyricsSourcesPriorityFlow: Flow<List<String>> =
+        dataStore.data.map { preferences ->
+            val raw = preferences[PreferencesKeys.ONLINE_LYRICS_SOURCES_PRIORITY]
+            if (raw.isNullOrBlank()) {
+                com.unshoo.pixelmusic.data.model.OnlineLyricsSource.DEFAULT_ORDER
+            } else {
+                val list = raw.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+                val missing = com.unshoo.pixelmusic.data.model.OnlineLyricsSource.DEFAULT_ORDER.filter { it !in list }
+                list + missing
+            }
+        }.distinctUntilChanged()
+
+    suspend fun setOnlineLyricsSourcesPriority(order: List<String>) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.ONLINE_LYRICS_SOURCES_PRIORITY] = order.joinToString(",")
         }
     }
 

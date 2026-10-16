@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.firstOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,7 +25,8 @@ class MultiSourceLyricsEngine @Inject constructor(
     private val paxsenixLyricsProvider: PaxsenixLyricsProvider,
     private val betterLyricsProvider: BetterLyricsProvider,
     private val netEaseLyricsProvider: NetEaseLyricsProvider,
-    private val kugouLyricsProvider: KugouLyricsProvider
+    private val kugouLyricsProvider: KugouLyricsProvider,
+    private val userPreferencesRepository: com.unshoo.pixelmusic.data.preferences.UserPreferencesRepository
 ) {
     companion object {
         private const val TAG = "MultiSourceLyricsEngine"
@@ -39,7 +41,11 @@ class MultiSourceLyricsEngine @Inject constructor(
         return NOISE_REGEX.replace(input, "").replace(Regex("""\s+"""), " ").trim()
     }
 
-    fun calculateLyricsQuality(lyrics: Lyrics, sourceName: String): Int {
+    fun calculateLyricsQuality(
+        lyrics: Lyrics,
+        sourceName: String,
+        priorityOrder: List<String> = emptyList()
+    ): Int {
         val synced = lyrics.synced
         val plain = lyrics.plain
 
@@ -50,21 +56,37 @@ class MultiSourceLyricsEngine @Inject constructor(
             return 10 + (plain?.size ?: 0).coerceAtMost(20)
         }
 
-        // Line-synced base score
-        var score = 50 + synced.size.coerceAtMost(40)
+        // Line-synced base score (60..100)
+        var score = 60 + synced.size.coerceAtMost(40)
 
-        // Syllable / word-by-word synced bonus (Apple Music / Paxsenix / BetterLyrics word format)
+        // Syllable / word-by-word synced bonus (+60 points)
         val hasWordTimings = synced.any { !it.words.isNullOrEmpty() }
         if (hasWordTimings) {
-            score += 50
+            score += 60
         }
 
-        // Provider trustworthiness bonus
-        when (sourceName.lowercase()) {
-            "betterlyrics", "applemusic", "paxsenix" -> score += 25
-            "deezer" -> score += 15
-            "lrclib" -> score += 10
-            "netease" -> score += 5
+        // Priority bonus based on user priority order
+        val normalizedSource = sourceName.lowercase().replace(" ", "").replace("_", "")
+        val priorityIndex = priorityOrder.indexOfFirst { priorityItem ->
+            val normPriority = priorityItem.lowercase().replace(" ", "").replace("_", "")
+            normalizedSource.contains(normPriority) || normPriority.contains(normalizedSource)
+        }
+        if (priorityIndex >= 0) {
+            score += when (priorityIndex) {
+                0 -> 40
+                1 -> 25
+                2 -> 15
+                3 -> 10
+                else -> 5
+            }
+        } else {
+            when (normalizedSource) {
+                "betterlyrics", "applemusic", "paxsenix" -> score += 30
+                "kugou" -> score += 20
+                "deezer" -> score += 15
+                "lrclib" -> score += 10
+                "netease" -> score += 5
+            }
         }
 
         return score
@@ -192,16 +214,20 @@ class MultiSourceLyricsEngine @Inject constructor(
             }
         )
 
+        val priorityOrder = runCatching {
+            userPreferencesRepository.onlineLyricsSourcesPriorityFlow.firstOrNull()
+        }.getOrNull() ?: com.unshoo.pixelmusic.data.model.OnlineLyricsSource.DEFAULT_ORDER
+
         var bestLyrics: Lyrics? = null
         var bestScore = -1
         var bestProvider = ""
 
-        // Wait for fastest result with a reasonable timeout
+        // Wait for fastest result with a reasonable timeout (instant response phase)
         val fastResultTimeoutMs = 3500L
         val maxWaitTimeoutMs = 6000L
         val startTime = System.currentTimeMillis()
 
-        // Wait for first response
+        // Phase 1: Wait for first response and emit immediately
         val firstResult = withTimeoutOrNull(fastResultTimeoutMs) {
             channel.receiveCatching().getOrNull()
         }
@@ -210,35 +236,24 @@ class MultiSourceLyricsEngine @Inject constructor(
             val (provider, lyrics, _) = firstResult
             bestLyrics = lyrics
             bestProvider = provider
-            bestScore = calculateLyricsQuality(lyrics, provider)
+            bestScore = calculateLyricsQuality(lyrics, provider, priorityOrder)
             Log.d(TAG, "Fastest lyrics from $provider (score=$bestScore). Emitting immediately!")
             onProgressiveUpdate(lyrics)
-
-            // If already top tier (word-by-word synced or score >= 120), stop immediately!
-            if (bestScore >= 120) {
-                searchJobs.forEach { it.cancel() }
-                channel.close()
-                return@coroutineScope bestLyrics
-            }
         }
 
-        // Wait remaining time up to maxWaitTimeoutMs for possible superior version
-        val remainingTime = (maxWaitTimeoutMs - (System.currentTimeMillis() - startTime)).coerceAtLeast(500L)
+        // Phase 2: In background, continue listening for superior quality version according to user priority
+        val remainingTime = (maxWaitTimeoutMs - (System.currentTimeMillis() - startTime)).coerceAtLeast(1000L)
         withTimeoutOrNull(remainingTime) {
             while (searchJobs.any { it.isActive }) {
                 val candidate = channel.receiveCatching().getOrNull() ?: break
                 val (provider, lyrics, _) = candidate
-                val score = calculateLyricsQuality(lyrics, provider)
-                if (score > bestScore + 10) {
-                    Log.d(TAG, "Superior lyrics found from $provider (score=$score vs $bestScore). Upgrading!")
+                val score = calculateLyricsQuality(lyrics, provider, priorityOrder)
+                if (score > bestScore + 8) {
+                    Log.d(TAG, "Superior lyrics found from $provider (score=$score vs $bestScore). Upgrading in background!")
                     bestLyrics = lyrics
                     bestProvider = provider
                     bestScore = score
                     onProgressiveUpdate(lyrics)
-
-                    if (bestScore >= 120) {
-                        break
-                    }
                 }
             }
         }
