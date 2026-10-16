@@ -59,7 +59,7 @@ class DeezerLyricsProvider @Inject constructor(
         null
     }
 
-    suspend fun getLyrics(title: String, artist: String): String? = withContext(Dispatchers.IO) {
+    suspend fun getLyrics(title: String, artist: String, durationSeconds: Int = -1): String? = withContext(Dispatchers.IO) {
         val jwt = getAnonymousToken() ?: return@withContext null
         try {
             val query = URLEncoder.encode("$artist $title", "UTF-8")
@@ -75,7 +75,32 @@ class DeezerLyricsProvider @Inject constructor(
                 val json = gson.fromJson(body, JsonObject::class.java)
                 val data = json.getAsJsonArray("data") ?: return@use null
                 if (data.size() == 0) return@use null
-                data.get(0).asJsonObject.get("id")?.asString
+
+                var bestScore = 0.0
+                var bestId: String? = null
+
+                for (i in 0 until data.size()) {
+                    val item = data.get(i).asJsonObject
+                    val id = item.get("id")?.asString ?: continue
+                    val candTitle = item.get("title")?.asString.orEmpty()
+                    val candArtist = item.getAsJsonObject("artist")?.get("name")?.asString.orEmpty()
+                    val candDuration = item.get("duration")?.asInt ?: -1
+
+                    val score = LyricsCandidateMatcher.scoreCandidate(
+                        targetTitle = title,
+                        targetArtist = artist,
+                        targetDurationSec = durationSeconds,
+                        candidateTitle = candTitle,
+                        candidateArtist = candArtist,
+                        candidateDurationSec = candDuration
+                    )
+
+                    if (score > bestScore && score >= 0.65) {
+                        bestScore = score
+                        bestId = id
+                    }
+                }
+                bestId
             }
 
             if (trackId.isNullOrBlank()) return@withContext null

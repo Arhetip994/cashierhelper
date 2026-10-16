@@ -23,7 +23,7 @@ class NetEaseLyricsProvider @Inject constructor(
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
     }
 
-    suspend fun getLyrics(title: String, artist: String): String? = withContext(Dispatchers.IO) {
+    suspend fun getLyrics(title: String, artist: String, durationSeconds: Int = -1): String? = withContext(Dispatchers.IO) {
         try {
             val query = URLEncoder.encode("$artist $title", "UTF-8")
             val searchRequest = Request.Builder()
@@ -39,7 +39,34 @@ class NetEaseLyricsProvider @Inject constructor(
                 val result = json.getAsJsonObject("result") ?: return@use null
                 val songs = result.getAsJsonArray("songs") ?: return@use null
                 if (songs.size() == 0) return@use null
-                songs.get(0).asJsonObject.get("id")?.asString
+
+                var bestScore = 0.0
+                var bestId: String? = null
+
+                for (i in 0 until songs.size()) {
+                    val item = songs.get(i).asJsonObject
+                    val id = item.get("id")?.asString ?: continue
+                    val candTitle = item.get("name")?.asString.orEmpty()
+                    val candArtist = item.getAsJsonArray("ar")?.mapNotNull {
+                        it.asJsonObject.get("name")?.asString
+                    }?.joinToString(", ").orEmpty()
+                    val candDuration = ((item.get("dt")?.asLong ?: 0L) / 1000L).toInt()
+
+                    val score = LyricsCandidateMatcher.scoreCandidate(
+                        targetTitle = title,
+                        targetArtist = artist,
+                        targetDurationSec = durationSeconds,
+                        candidateTitle = candTitle,
+                        candidateArtist = candArtist,
+                        candidateDurationSec = candDuration
+                    )
+
+                    if (score > bestScore && score >= 0.65) {
+                        bestScore = score
+                        bestId = id
+                    }
+                }
+                bestId
             }
 
             if (songId.isNullOrBlank()) return@withContext null

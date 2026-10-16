@@ -25,7 +25,7 @@ class KugouLyricsProvider @Inject constructor(
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
     }
 
-    suspend fun getLyrics(title: String, artist: String): String? = withContext(Dispatchers.IO) {
+    suspend fun getLyrics(title: String, artist: String, durationSeconds: Int = -1): String? = withContext(Dispatchers.IO) {
         try {
             val query = URLEncoder.encode("$artist $title", "UTF-8")
             val searchRequest = Request.Builder()
@@ -41,7 +41,40 @@ class KugouLyricsProvider @Inject constructor(
                 val data = json.getAsJsonObject("data") ?: return@use null
                 val lists = data.getAsJsonArray("lists") ?: return@use null
                 if (lists.size() == 0) return@use null
-                lists.get(0).asJsonObject.get("FileHash")?.asString
+
+                var bestScore = 0.0
+                var bestHash: String? = null
+
+                for (i in 0 until lists.size()) {
+                    val item = lists.get(i).asJsonObject
+                    val hash = item.get("FileHash")?.asString ?: continue
+                    val fileName = item.get("FileName")?.asString.orEmpty()
+                    val songName = item.get("SongName")?.asString.orEmpty()
+                    val candDuration = item.get("Duration")?.asInt ?: -1
+
+                    var candArtist = ""
+                    var candTitle = songName
+                    if (fileName.contains(" - ")) {
+                        val parts = fileName.split(" - ", limit = 2)
+                        candArtist = parts[0].trim()
+                        if (candTitle.isBlank()) candTitle = parts[1].trim()
+                    }
+
+                    val score = LyricsCandidateMatcher.scoreCandidate(
+                        targetTitle = title,
+                        targetArtist = artist,
+                        targetDurationSec = durationSeconds,
+                        candidateTitle = candTitle,
+                        candidateArtist = candArtist,
+                        candidateDurationSec = candDuration
+                    )
+
+                    if (score > bestScore && score >= 0.65) {
+                        bestScore = score
+                        bestHash = hash
+                    }
+                }
+                bestHash
             }
 
             if (fileHash.isNullOrBlank()) return@withContext null

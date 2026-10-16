@@ -28,19 +28,24 @@ class PaxsenixLyricsProvider @Inject constructor(
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
     }
 
-    suspend fun getAppleMusicLyrics(title: String, artist: String, apiKey: String? = null): String? = withContext(Dispatchers.IO) {
+    suspend fun getAppleMusicLyrics(
+        title: String,
+        artist: String,
+        durationSeconds: Int = -1,
+        apiKey: String? = null
+    ): String? = withContext(Dispatchers.IO) {
         try {
             val query = URLEncoder.encode("$artist $title", "UTF-8")
 
             // 1. First search via Paxsenix Apple Music search API
-            var trackId = searchPaxsenix(PAXSENIX_SEARCH_URL + query)
+            var trackId = searchPaxsenix(PAXSENIX_SEARCH_URL + query, title, artist, durationSeconds)
 
             // 2. Fallback to iTunes search if needed
             if (trackId == null) {
-                trackId = searchAppleMusic(APPLE_SEARCH_URL_RU + query)
+                trackId = searchAppleMusic(APPLE_SEARCH_URL_RU + query, title, artist, durationSeconds)
             }
             if (trackId == null) {
-                trackId = searchAppleMusic(APPLE_SEARCH_URL_US + query)
+                trackId = searchAppleMusic(APPLE_SEARCH_URL_US + query, title, artist, durationSeconds)
             }
             if (trackId == null) return@withContext null
 
@@ -65,7 +70,7 @@ class PaxsenixLyricsProvider @Inject constructor(
         null
     }
 
-    private fun searchPaxsenix(url: String): String? {
+    private fun searchPaxsenix(url: String, title: String, artist: String, durationSeconds: Int): String? {
         try {
             val request = Request.Builder()
                 .url(url)
@@ -77,10 +82,30 @@ class PaxsenixLyricsProvider @Inject constructor(
                 if (!response.isSuccessful) return null
                 val body = response.body.string()
                 val jsonArray = gson.fromJson(body, com.google.gson.JsonArray::class.java) ?: return null
-                if (jsonArray.size() > 0) {
-                    val first = jsonArray.get(0).asJsonObject
-                    return first.get("id")?.asString
+                var bestScore = 0.0
+                var bestId: String? = null
+
+                for (i in 0 until jsonArray.size()) {
+                    val item = jsonArray.get(i).asJsonObject
+                    val id = item.get("id")?.asString ?: continue
+                    val candTitle = item.get("name")?.asString ?: item.get("title")?.asString.orEmpty()
+                    val candArtist = item.get("artist")?.asString.orEmpty()
+
+                    val score = LyricsCandidateMatcher.scoreCandidate(
+                        targetTitle = title,
+                        targetArtist = artist,
+                        targetDurationSec = durationSeconds,
+                        candidateTitle = candTitle,
+                        candidateArtist = candArtist,
+                        candidateDurationSec = -1
+                    )
+
+                    if (score > bestScore && score >= 0.65) {
+                        bestScore = score
+                        bestId = id
+                    }
                 }
+                return bestId
             }
         } catch (e: Exception) {
             Log.w(TAG, "Paxsenix direct search failed: ${e.message}")
@@ -88,7 +113,7 @@ class PaxsenixLyricsProvider @Inject constructor(
         return null
     }
 
-    private fun searchAppleMusic(url: String): String? {
+    private fun searchAppleMusic(url: String, title: String, artist: String, durationSeconds: Int): String? {
         try {
             val request = Request.Builder()
                 .url(url)
@@ -101,10 +126,31 @@ class PaxsenixLyricsProvider @Inject constructor(
                 val body = response.body.string()
                 val json = gson.fromJson(body, JsonObject::class.java)
                 val results = json.getAsJsonArray("results") ?: return null
-                if (results.size() > 0) {
-                    val first = results.get(0).asJsonObject
-                    return first.get("trackId")?.asString
+                var bestScore = 0.0
+                var bestId: String? = null
+
+                for (i in 0 until results.size()) {
+                    val item = results.get(i).asJsonObject
+                    val id = item.get("trackId")?.asString ?: continue
+                    val candTitle = item.get("trackName")?.asString.orEmpty()
+                    val candArtist = item.get("artistName")?.asString.orEmpty()
+                    val candDuration = ((item.get("trackTimeMillis")?.asLong ?: 0L) / 1000L).toInt()
+
+                    val score = LyricsCandidateMatcher.scoreCandidate(
+                        targetTitle = title,
+                        targetArtist = artist,
+                        targetDurationSec = durationSeconds,
+                        candidateTitle = candTitle,
+                        candidateArtist = candArtist,
+                        candidateDurationSec = candDuration
+                    )
+
+                    if (score > bestScore && score >= 0.65) {
+                        bestScore = score
+                        bestId = id
+                    }
                 }
+                return bestId
             }
         } catch (e: Exception) {
             Log.w(TAG, "Apple Music search failed: ${e.message}")

@@ -30,15 +30,10 @@ class MultiSourceLyricsEngine @Inject constructor(
 ) {
     companion object {
         private const val TAG = "MultiSourceLyricsEngine"
-
-        private val NOISE_REGEX = Regex(
-            """\s*[\(\[][^\)\]]*\b(official|video|audio|lyrics?|visualizer|remaster(ed)?|hd|hq|4k|mv|feat|ft|prod|edit|mix|version|cover|клип|премьера)\b[^\)\]]*[\)\]]""",
-            RegexOption.IGNORE_CASE
-        )
     }
 
     private fun cleanString(input: String): String {
-        return NOISE_REGEX.replace(input, "").replace(Regex("""\s+"""), " ").trim()
+        return LyricsCandidateMatcher.cleanTitle(input)
     }
 
     fun calculateLyricsQuality(
@@ -104,11 +99,12 @@ class MultiSourceLyricsEngine @Inject constructor(
         onProgressiveUpdate: (Lyrics) -> Unit
     ): Lyrics? = coroutineScope {
         val rawTitle = song.title
-        val rawArtist = song.displayArtist
-        val cleanTitle = cleanString(rawTitle)
-        val cleanArtist = cleanString(rawArtist)
+        val rawArtist = song.displayArtist.ifBlank { song.artist }
+        val cleanTitle = LyricsCandidateMatcher.cleanTitle(rawTitle, rawArtist)
+        val primaryArtist = LyricsCandidateMatcher.extractPrimaryArtist(rawArtist)
+        val cleanArtist = if (primaryArtist.isNotBlank()) primaryArtist else rawArtist
 
-        val durationSeconds = (song.duration / 1000L).toInt().coerceAtLeast(30)
+        val durationSeconds = (song.duration / 1000L).toInt().coerceAtLeast(15)
 
         val channel = Channel<Triple<String, Lyrics, String>>(capacity = 6)
         val searchJobs = mutableListOf<Job>()
@@ -124,8 +120,27 @@ class MultiSourceLyricsEngine @Inject constructor(
                             albumName = song.album.orEmpty(),
                             duration = durationSeconds
                         )
-                    }.getOrNull() ?: runCatching {
-                        lrcLibApiService.searchLyrics(query = "$cleanArtist $cleanTitle")?.firstOrNull()
+                    }.getOrNull() ?: runCatching<LrcLibResponse?> {
+                        val searchResults = lrcLibApiService.searchLyrics(query = "$cleanArtist $cleanTitle")
+                        if (searchResults != null && searchResults.isNotEmpty()) {
+                            var bestScore = 0.0
+                            var bestMatch: LrcLibResponse? = null
+                            for (candidate in searchResults) {
+                                val score = LyricsCandidateMatcher.scoreCandidate(
+                                    targetTitle = cleanTitle,
+                                    targetArtist = cleanArtist,
+                                    targetDurationSec = durationSeconds,
+                                    candidateTitle = candidate.name,
+                                    candidateArtist = candidate.artistName,
+                                    candidateDurationSec = candidate.duration.toInt()
+                                )
+                                if (score > bestScore && score >= 0.65) {
+                                    bestScore = score
+                                    bestMatch = candidate
+                                }
+                            }
+                            bestMatch
+                        } else null
                     }.getOrNull()
 
                     val rawLrc = lrcResponse?.syncedLyrics ?: lrcResponse?.plainLyrics
@@ -139,11 +154,11 @@ class MultiSourceLyricsEngine @Inject constructor(
             }
         )
 
-        // 2. Deezer job (fast anonymous GraphQL)
+        // 2. Deezer job (fast anonymous GraphQL with duration verification)
         searchJobs.add(
             launch(Dispatchers.IO) {
                 try {
-                    val rawDeezer = deezerLyricsProvider.getLyrics(cleanTitle, cleanArtist)
+                    val rawDeezer = deezerLyricsProvider.getLyrics(cleanTitle, cleanArtist, durationSeconds)
                     if (!rawDeezer.isNullOrBlank()) {
                         val parsed = LyricsUtils.parseLyrics(rawDeezer).copy(areFromRemote = true)
                         if (!parsed.synced.isNullOrEmpty()) {
@@ -158,7 +173,7 @@ class MultiSourceLyricsEngine @Inject constructor(
         searchJobs.add(
             launch(Dispatchers.IO) {
                 try {
-                    val rawApple = paxsenixLyricsProvider.getAppleMusicLyrics(cleanTitle, cleanArtist, apiKey = paxsenixApiKey)
+                    val rawApple = paxsenixLyricsProvider.getAppleMusicLyrics(cleanTitle, cleanArtist, durationSeconds, apiKey = paxsenixApiKey)
                     if (!rawApple.isNullOrBlank()) {
                         val parsed = LyricsUtils.parseLyrics(rawApple).copy(areFromRemote = true)
                         if (!parsed.synced.isNullOrEmpty() || !parsed.plain.isNullOrEmpty()) {
@@ -169,11 +184,11 @@ class MultiSourceLyricsEngine @Inject constructor(
             }
         )
 
-        // 4. NetEase job
+        // 4. NetEase job (verified candidates)
         searchJobs.add(
             launch(Dispatchers.IO) {
                 try {
-                    val rawNetease = netEaseLyricsProvider.getLyrics(cleanTitle, cleanArtist)
+                    val rawNetease = netEaseLyricsProvider.getLyrics(cleanTitle, cleanArtist, durationSeconds)
                     if (!rawNetease.isNullOrBlank()) {
                         val parsed = LyricsUtils.parseLyrics(rawNetease).copy(areFromRemote = true)
                         if (!parsed.synced.isNullOrEmpty()) {
@@ -184,11 +199,11 @@ class MultiSourceLyricsEngine @Inject constructor(
             }
         )
 
-        // 5. Kugou job
+        // 5. Kugou job (verified candidates)
         searchJobs.add(
             launch(Dispatchers.IO) {
                 try {
-                    val rawKugou = kugouLyricsProvider.getLyrics(cleanTitle, cleanArtist)
+                    val rawKugou = kugouLyricsProvider.getLyrics(cleanTitle, cleanArtist, durationSeconds)
                     if (!rawKugou.isNullOrBlank()) {
                         val parsed = LyricsUtils.parseLyrics(rawKugou).copy(areFromRemote = true)
                         if (!parsed.synced.isNullOrEmpty()) {
