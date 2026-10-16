@@ -147,8 +147,12 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.unshoo.pixelmusic.data.preferences.dataStore
 
 import kotlin.math.abs
+import kotlin.math.PI
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import com.unshoo.pixelmusic.presentation.components.LyricsInterludeDots
+import com.unshoo.pixelmusic.presentation.components.LyricsInterludeAlignment
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FilledTonalIconButton
@@ -1697,14 +1701,24 @@ fun SyncedLyricsList(
                             onClick = { onLineClick(line) }
                         )
                     } else {
-                        BubblesLine(
-                            positionFlow = playbackPositionFlow,
-                            time = line.time,
-                            color = LocalContentColor.current.copy(alpha = 0.6f),
-                            nextTime = nextTime,
+                        val endMs = if (nextTime < Int.MAX_VALUE) nextTime.toLong() else (line.time + 4000L)
+                        val isInterludeActive = position in line.time.toLong()..<endMs
+                        LyricsInterludeDots(
+                            startMs = line.time.toLong(),
+                            endMs = endMs,
+                            positionProvider = { position },
+                            accentColor = accentColor,
+                            visible = isInterludeActive,
+                            alignment = when {
+                                line.agent == "v1" -> LyricsInterludeAlignment.START
+                                line.agent == "v2" -> LyricsInterludeAlignment.END
+                                lyricsAlignment == "center" -> LyricsInterludeAlignment.CENTER
+                                lyricsAlignment == "right" -> LyricsInterludeAlignment.END
+                                else -> LyricsInterludeAlignment.CENTER
+                            },
                             modifier = parallaxModifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp)
+                                .padding(vertical = 4.dp)
                         )
                     }
 // 16 dp Spacer removed to allow dynamic padding in LyricLineRow
@@ -1945,7 +1959,7 @@ fun LyricLineRow(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
                 contentAlignment = boxAlignment
             ) {
                 // Invisible bold text to reserve layout space and prevent reflow
@@ -1954,7 +1968,8 @@ fun LyricLineRow(
                     style = effectiveStyle,
                     color = Color.Transparent,
                     fontWeight = FontWeight.Bold,
-                    textAlign = textAlign
+                    textAlign = textAlign,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
                 // Base unsung / normal line text
                 Text(
@@ -1962,7 +1977,8 @@ fun LyricLineRow(
                     style = effectiveStyle,
                     color = if (isCurrentLine && useAnimatedLyrics) unhighlightedColor else lineColor,
                     fontWeight = if (isCurrentLine) FontWeight.Bold else FontWeight.Normal,
-                    textAlign = textAlign
+                    textAlign = textAlign,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
                 // Progressive sweep fill for active line (Apple Music & DynamicIsland Lyric.cs style)
                 if (isCurrentLine && useAnimatedLyrics) {
@@ -1991,7 +2007,8 @@ fun LyricLineRow(
                         text = sanitizedLine,
                         style = effectiveStyle.copy(brush = sweepBrush),
                         fontWeight = FontWeight.Bold,
-                        textAlign = textAlign
+                        textAlign = textAlign,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
             }
@@ -2080,7 +2097,8 @@ fun LyricLineRow(
                                     unhighlightedColor = unhighlightedColor,
                                     position = position,
                                     wordStartTime = wordStart,
-                                    wordEndTime = wordEnd
+                                    wordEndTime = wordEnd,
+                                    isBackground = line.isBackground
                                 )
                             }
                         }
@@ -2123,8 +2141,14 @@ fun LyricWordSpan(
     position: Long = 0L,
     wordStartTime: Long = 0L,
     wordEndTime: Long = 0L,
+    isBackground: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val cleanText = remember(word.word) {
+        LyricsUtils.cleanLyricBrackets(word.word.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "")).trim()
+    }
+    if (cleanText.isEmpty()) return
+
     val wordDuration = (wordEndTime - wordStartTime).coerceAtLeast(1L)
     val rawProgress = when {
         !useAnimatedLyrics -> if (isHighlighted || isPast) 1f else 0f
@@ -2137,74 +2161,83 @@ fun LyricWordSpan(
 
     val animatedProgress by animateFloatAsState(
         targetValue = rawProgress,
-        animationSpec = tween(durationMillis = 100, easing = LinearEasing),
+        animationSpec = tween(durationMillis = 80, easing = LinearEasing),
         label = "wordProgress"
     )
 
-    val wordAnimSpec = if (useAnimatedLyrics) spring<Float>(
-        stiffness = Spring.StiffnessVeryLow,
-        dampingRatio = Spring.DampingRatioMediumBouncy
-    ) else tween(durationMillis = 200)
+    // Musicfy & Apple Music syllable wave bounce & breathing scale
+    val sinProgress = sin(rawProgress * PI).toFloat()
+    val wordScale = if (useAnimatedLyrics && isHighlighted) 1f + (0.018f * sinProgress) else 1f
 
-    // Scale: pop up on active highlight, settle back to 1f.
-    val scale by animateFloatAsState(
-        targetValue = if (useAnimatedLyrics && isHighlighted) 1.05f else 1f,
-        animationSpec = wordAnimSpec,
-        label = "wordScale"
+    val targetFloat = if (useAnimatedLyrics && isHighlighted) -4f * sinProgress else 0f
+    val floatOffset by animateFloatAsState(
+        targetValue = targetFloat,
+        animationSpec = tween(
+            durationMillis = if (isHighlighted) 50 else 350,
+            easing = FastOutSlowInEasing
+        ),
+        label = "WordFloatOffset"
     )
 
-    // Alpha: active and past words are full brightness, future words dim
+    // Dynamic glowing flare shadow
+    val glowProgress = (rawProgress * 2f).coerceAtMost(1f)
+    val glowAlpha = if (useAnimatedLyrics && isHighlighted) glowProgress * 0.45f else 0f
+    val glowRadius = if (useAnimatedLyrics && isHighlighted) glowProgress * 12f else 0f
+
+    val textShadow = if (glowAlpha > 0f) {
+        Shadow(
+            color = highlightedColor.copy(alpha = glowAlpha),
+            offset = Offset.Zero,
+            blurRadius = glowRadius.coerceAtLeast(1f)
+        )
+    } else null
+
     val targetAlpha = when {
-        isHighlighted -> 1f
-        isPast -> if (useAnimatedLyrics) 0.95f else 1f
-        else -> if (useAnimatedLyrics) 0.45f else 0.85f
+        isHighlighted -> if (isBackground) 0.85f else 1f
+        isPast -> if (useAnimatedLyrics) (if (isBackground) 0.75f else 0.95f) else 1f
+        else -> if (useAnimatedLyrics) (if (isBackground) 0.35f else 0.45f) else 0.85f
     }
 
     val alpha by animateFloatAsState(
         targetValue = targetAlpha,
-        animationSpec = wordAnimSpec,
+        animationSpec = spring(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioNoBouncy),
         label = "wordAlpha"
     )
 
-    val textShadow = if (useAnimatedLyrics && isHighlighted && animatedProgress > 0f) {
-        Shadow(
-            color = highlightedColor.copy(alpha = 0.55f * animatedProgress),
-            offset = Offset.Zero,
-            blurRadius = (10f * animatedProgress).coerceAtLeast(0.1f)
-        )
-    } else null
-
     val density = LocalDensity.current
-    val edgeWidthPx = remember(density) { with(density) { 6.dp.toPx() } }
+    val edgeWidthPx = remember(density) { with(density) { 8.dp.toPx() } }
 
     Box(
         modifier = modifier
-            .padding(horizontal = 2.dp, vertical = 2.dp)
+            .padding(horizontal = 3.dp, vertical = 2.dp)
             .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
+                translationY = floatOffset * density.density
+                scaleX = wordScale
+                scaleY = wordScale
                 this.alpha = alpha
             },
         contentAlignment = Alignment.Center
     ) {
-        // Base unsung / unhighlighted text
+        // Base unsung / unhighlighted text (generously padded so italic glyphs never clip)
         Text(
-            text = word.word,
+            text = cleanText,
             style = style,
             color = if (isPast && !useAnimatedLyrics) highlightedColor else unhighlightedColor,
-            fontWeight = if (isHighlighted || isPast) FontWeight.Bold else FontWeight.Normal,
-            modifier = Modifier.padding(horizontal = 2.dp)
+            fontWeight = if (isHighlighted || isPast) FontWeight.Bold else FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+            softWrap = false
         )
 
         // Highlighted text swept with Apple Music soft-edge mask
         if (useAnimatedLyrics && (isHighlighted || isPast)) {
             Text(
-                text = word.word,
+                text = cleanText,
                 style = style.copy(shadow = textShadow),
-                color = highlightedColor,
-                fontWeight = FontWeight.Bold,
+                color = highlightedColor.copy(alpha = if (isBackground) 0.85f else 1f),
+                fontWeight = if (isHighlighted || isPast) FontWeight.Bold else FontWeight.SemiBold,
+                softWrap = false,
                 modifier = Modifier
-                    .padding(horizontal = 2.dp)
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
                     .then(
                         if (isHighlighted && animatedProgress < 1f) {
                             Modifier

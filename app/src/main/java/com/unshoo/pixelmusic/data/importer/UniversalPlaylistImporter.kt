@@ -4,12 +4,17 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import unshoo.ianshulyadav.pixelmusic.innertube.YouTube
-import unshoo.ianshulyadav.pixelmusic.innertube.models.SongItem
+import com.google.gson.JsonPrimitive
+import com.unshoo.pixelmusic.data.database.AlbumEntity
+import com.unshoo.pixelmusic.data.database.ArtistEntity
+import com.unshoo.pixelmusic.data.database.MusicDao
+import com.unshoo.pixelmusic.data.database.SongEntity
+import com.unshoo.pixelmusic.data.database.SourceType
 import com.unshoo.pixelmusic.data.database.youtube.AppDatabase
 import com.unshoo.pixelmusic.data.model.youtube.PlaylistInfo
 import com.unshoo.pixelmusic.data.model.youtube.PlaylistSongCrossRef
-import com.unshoo.pixelmusic.data.model.youtube.Song
+import com.unshoo.pixelmusic.data.preferences.PlaylistPreferencesRepository
+import com.unshoo.pixelmusic.utils.YouTubeIdUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -18,7 +23,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import timber.log.Timber
-import java.util.UUID
+import unshoo.ianshulyadav.pixelmusic.innertube.YouTube
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -41,7 +46,9 @@ data class ParsedPlaylist(
 @Singleton
 class UniversalPlaylistImporter @Inject constructor(
     private val okHttpClient: OkHttpClient,
-    private val gson: Gson
+    private val gson: Gson,
+    private val musicDao: MusicDao,
+    private val playlistPreferencesRepository: PlaylistPreferencesRepository
 ) {
     companion object {
         private const val USER_AGENT =
@@ -401,9 +408,78 @@ class UniversalPlaylistImporter @Inject constructor(
 
     // --- APPLE MUSIC ---
     private fun fetchApple(url: String): ParsedPlaylist {
-        val html = httpGet(url.substringBefore('#'))
+        val cleanUrl = url.substringBefore('#')
+        val html = httpGet(cleanUrl)
+
+        // Try serialized-server-data JSON first (Musicfy approach)
+        val serverData = Regex("<script[^>]*id=\"serialized-server-data\"[^>]*>(.*?)</script>", RegexOption.DOT_MATCHES_ALL)
+            .find(html)?.groupValues?.get(1)
+
+        if (!serverData.isNullOrBlank()) {
+            try {
+                val root = gson.fromJson(serverData, JsonArray::class.java)
+                val page = root.firstOrNull()?.asJsonObject?.getAsJsonObject("data")
+                val sections = page?.getAsJsonArray("sections")?.mapNotNull { it.asJsonObject }.orEmpty()
+
+                val header = sections.firstOrNull { it.get("itemKind")?.asString == "containerDetailHeaderLockup" }
+                    ?.getAsJsonArray("items")?.firstOrNull()?.asJsonObject
+                val name = header?.get("title")?.asString ?: "Apple Music Playlist"
+                val cover = header?.getAsJsonObject("artwork")?.getAsJsonObject("dictionary")?.get("url")?.asString
+                    ?.replace("{w}", "600")?.replace("{h}", "600")?.replace("{c}", "bb")?.replace("{f}", "jpg")
+
+                val tracks = mutableListOf<ImportedTrack>()
+                for (sec in sections) {
+                    if (sec.get("itemKind")?.asString == "trackLockup") {
+                        val items = sec.getAsJsonArray("items") ?: continue
+                        for (elem in items) {
+                            if (!elem.isJsonObject) continue
+                            val obj = elem.asJsonObject
+                            val title = obj.get("title")?.asString ?: continue
+                            val subtitleLinks = obj.getAsJsonArray("subtitleLinks")
+                            val artists = mutableListOf<String>()
+                            if (subtitleLinks != null) {
+                                for (sub in subtitleLinks) {
+                                    if (sub.isJsonObject) {
+                                        val subTitle = sub.asJsonObject.get("title")?.asString
+                                        if (!subTitle.isNullOrBlank()) artists.add(subTitle)
+                                    }
+                                }
+                            }
+                            val artistName = obj.get("artistName")?.asString ?: artists.joinToString(", ")
+                            val dur = if (obj.has("duration") && !obj.get("duration").isJsonNull) obj.get("duration").asLong else null
+
+                            tracks.add(
+                                ImportedTrack(
+                                    title = title,
+                                    artist = artistName,
+                                    album = name,
+                                    durationMs = dur,
+                                    coverUrl = cover
+                                )
+                            )
+                        }
+                    }
+                }
+
+                if (tracks.isNotEmpty()) {
+                    return ParsedPlaylist(
+                        title = name,
+                        coverUrl = cover,
+                        tracks = tracks,
+                        source = "Apple Music"
+                    )
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "Apple Music JSON parsing fallback to HTML regex")
+            }
+        }
+
+        // HTML Regex fallback
         val titleMatch = Regex("<title>(.*?)</title>").find(html)
-        val rawTitle = titleMatch?.groupValues?.get(1)?.substringBefore(" on Apple Music")?.substringBefore(" в Apple Music") ?: "Apple Music Playlist"
+        val rawTitle = titleMatch?.groupValues?.get(1)
+            ?.substringBefore(" on Apple Music")
+            ?.substringBefore(" в Apple Music")
+            ?: "Apple Music Playlist"
 
         val tracks = mutableListOf<ImportedTrack>()
         val trackRegex = Regex("\"name\":\\s*\"([^\"]+)\"[^}]*?\"byArtist\":\\s*\\{[^}]*?\"name\":\\s*\"([^\"]+)\"", RegexOption.DOT_MATCHES_ALL)
@@ -426,7 +502,7 @@ class UniversalPlaylistImporter @Inject constructor(
         )
     }
 
-    // --- DEEZER ---
+    // --- DEEZER (Multi-page support) ---
     private fun fetchDeezer(url: String): ParsedPlaylist {
         val match = DEEZER_REGEX.find(url)
             ?: throw IllegalArgumentException("Неверная ссылка Deezer")
@@ -440,24 +516,42 @@ class UniversalPlaylistImporter @Inject constructor(
 
         val title = root.get("title")?.asString ?: "Deezer $type"
         val cover = root.get("picture_xl")?.asString ?: root.get("cover_xl")?.asString
+        val albumName = if (type == "album") title else null
 
-        val tracksArray = root.getAsJsonObject("tracks")?.getAsJsonArray("data") ?: JsonArray()
         val tracks = mutableListOf<ImportedTrack>()
+        var nextUrl: String? = "https://api.deezer.com/$type/$id/tracks?limit=100"
+        var pages = 0
 
-        for (elem in tracksArray) {
-            val obj = elem.asJsonObject
-            val trackTitle = obj.get("title")?.asString ?: continue
-            val artist = obj.getAsJsonObject("artist")?.get("name")?.asString ?: ""
-            val durationSec = obj.get("duration")?.asLong ?: 0L
+        while (nextUrl != null && pages < 100) {
+            try {
+                val pageStr = httpGet(nextUrl)
+                val pageObj = gson.fromJson(pageStr, JsonObject::class.java)
+                val dataArray = pageObj.getAsJsonArray("data") ?: break
 
-            tracks.add(
-                ImportedTrack(
-                    title = trackTitle,
-                    artist = artist,
-                    durationMs = durationSec * 1000L,
-                    coverUrl = cover
-                )
-            )
+                for (elem in dataArray) {
+                    val obj = elem.asJsonObject
+                    val trackTitle = obj.get("title")?.asString ?: continue
+                    val artist = obj.getAsJsonObject("artist")?.get("name")?.asString ?: ""
+                    val durationSec = obj.get("duration")?.asLong ?: 0L
+                    val trackAlbum = albumName ?: obj.getAsJsonObject("album")?.get("title")?.asString
+
+                    tracks.add(
+                        ImportedTrack(
+                            title = trackTitle,
+                            artist = artist,
+                            album = trackAlbum,
+                            durationMs = durationSec * 1000L,
+                            coverUrl = cover
+                        )
+                    )
+                }
+
+                nextUrl = pageObj.get("next")?.asString?.takeIf { it.startsWith("https://api.deezer.com/") }
+                pages++
+            } catch (e: Exception) {
+                Timber.w(e, "Error fetching Deezer pagination page $pages")
+                break
+            }
         }
 
         return ParsedPlaylist(
@@ -494,86 +588,146 @@ class UniversalPlaylistImporter @Inject constructor(
     }
 
     /**
-     * Resolves imported tracks to playable YouTube songs and saves the playlist to the local database.
+     * Resolves imported tracks using TrackMatcher and saves the playlist to both Room databases
+     * (MusicDao for full playback & Library visibility, AppDatabase for YouTube compatibility).
      */
     suspend fun importToLibrary(
         context: Context,
         playlist: ParsedPlaylist,
         onProgress: (current: Int, total: Int) -> Unit = { _, _ -> }
     ): String = withContext(Dispatchers.IO) {
-        val appDatabase = AppDatabase.getInstance(context)
-        val playlistId = "imported_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
-
-        val resolvedSongs = mutableListOf<Song>()
+        val matcher = TrackMatcher()
         val total = playlist.tracks.size
 
-        // Batch search resolution in chunks of 4 concurrent requests
-        coroutineScope {
-            val chunks = playlist.tracks.chunked(4)
-            var processed = 0
+        val resolvedSongs = mutableListOf<com.unshoo.pixelmusic.data.model.youtube.Song>()
+        val songEntitiesToInsert = mutableListOf<SongEntity>()
+        val albumsToInsert = mutableListOf<AlbumEntity>()
+        val artistsToInsert = mutableListOf<ArtistEntity>()
+        val localSongIds = mutableListOf<String>()
 
-            for (chunk in chunks) {
+        val chunks = playlist.tracks.chunked(3)
+        var processed = 0
+
+        for (chunk in chunks) {
+            coroutineScope {
                 val deferreds = chunk.map { track ->
                     async {
-                        if (!track.videoId.isNullOrBlank()) {
-                            Song(
-                                youtubeId = track.videoId,
-                                title = track.title,
-                                artist = track.artist,
-                                duration = if ((track.durationMs ?: 0L) > 0) (track.durationMs!! / 1000).toString() else "",
-                                thumbnailHref = track.coverUrl ?: playlist.coverUrl ?: "",
-                                album = track.album
-                            )
-                        } else {
-                            try {
-                                val query = "${track.title} ${track.artist}".trim()
-                                val searchRes = YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrNull()
-                                val topSong = searchRes?.items?.filterIsInstance<SongItem>()?.firstOrNull()
-                                if (topSong != null) {
-                                    Song(
-                                        youtubeId = topSong.id,
-                                        title = topSong.title,
-                                        artist = topSong.artists.joinToString(", ") { it.name },
-                                        duration = topSong.duration?.toString() ?: "",
-                                        thumbnailHref = topSong.thumbnail ?: track.coverUrl ?: "",
-                                        album = topSong.album?.name ?: track.album
-                                    )
-                                } else {
-                                    null
-                                }
-                            } catch (e: Exception) {
-                                Timber.w(e, "Failed to resolve track: ${track.title}")
-                                null
-                            }
+                        try {
+                            val matchedItem = matcher.match(track)
+                            if (matchedItem != null) {
+                                val yId = matchedItem.id
+                                val songIdLong = YouTubeIdUtils.toUnifiedYoutubeSongId(yId)
+                                val artistName = matchedItem.artists.joinToString(", ") { it.name }
+                                    .ifEmpty { track.artist }.ifEmpty { "Unknown Artist" }
+                                val albumName = matchedItem.album?.name?.takeIf { it.isNotBlank() }
+                                    ?: track.album?.takeIf { it.isNotBlank() } ?: "YouTube Music"
+                                val artistIdLong = YouTubeIdUtils.toUnifiedYoutubeArtistId(artistName)
+                                val albumIdLong = YouTubeIdUtils.toUnifiedYoutubeAlbumId(albumName)
+                                val durMs = matchedItem.duration?.toLong()?.times(1000L) ?: track.durationMs ?: 0L
+                                val cover = matchedItem.thumbnail ?: track.coverUrl ?: playlist.coverUrl ?: ""
+
+                                val ytSong = com.unshoo.pixelmusic.data.model.youtube.Song(
+                                    youtubeId = yId,
+                                    title = matchedItem.title,
+                                    artist = artistName,
+                                    duration = if (durMs > 0) (durMs / 1000).toString() else "",
+                                    thumbnailHref = cover,
+                                    album = albumName
+                                )
+
+                                val songEntity = SongEntity(
+                                    id = songIdLong,
+                                    title = matchedItem.title,
+                                    artistName = artistName,
+                                    artistId = artistIdLong,
+                                    albumName = albumName,
+                                    albumId = albumIdLong,
+                                    contentUriString = "youtube://$yId",
+                                    albumArtUriString = cover,
+                                    duration = durMs,
+                                    genre = null,
+                                    filePath = "youtube://$yId",
+                                    parentDirectoryPath = "YouTube Music",
+                                    sourceType = SourceType.YOUTUBE
+                                )
+
+                                val artistEntity = ArtistEntity(
+                                    id = artistIdLong,
+                                    name = artistName,
+                                    trackCount = 1,
+                                    imageUrl = null
+                                )
+
+                                val albumEntity = AlbumEntity(
+                                    id = albumIdLong,
+                                    title = albumName,
+                                    artistName = artistName,
+                                    artistId = artistIdLong,
+                                    songCount = 1,
+                                    dateAdded = System.currentTimeMillis(),
+                                    year = 0,
+                                    albumArtUriString = cover
+                                )
+
+                                Triple(ytSong, songEntity, Triple(artistEntity, albumEntity, "youtube_$yId"))
+                            } else null
+                        } catch (e: Exception) {
+                            Timber.w(e, "Failed to match track: ${track.title}")
+                            null
                         }
                     }
                 }
 
                 val results = deferreds.awaitAll().filterNotNull()
-                resolvedSongs.addAll(results)
+                results.forEach { (ytSong, entity, extra) ->
+                    resolvedSongs.add(ytSong)
+                    songEntitiesToInsert.add(entity)
+                    artistsToInsert.add(extra.first)
+                    albumsToInsert.add(extra.second)
+                    localSongIds.add(extra.third)
+                }
                 processed += chunk.size
                 onProgress(processed.coerceAtMost(total), total)
             }
         }
 
+        // Insert into Room MusicDao so all tracks are immediately accessible in library and playlists
+        if (artistsToInsert.isNotEmpty()) {
+            musicDao.insertArtistsIgnoreConflicts(artistsToInsert)
+        }
+        if (albumsToInsert.isNotEmpty()) {
+            musicDao.insertAlbumsIgnoreConflicts(albumsToInsert)
+        }
+        if (songEntitiesToInsert.isNotEmpty()) {
+            musicDao.insertSongsIgnoreConflicts(songEntitiesToInsert)
+        }
+
+        // Create the playlist in PlaylistPreferencesRepository
+        val createdPlaylist = playlistPreferencesRepository.createPlaylist(
+            name = playlist.title,
+            songIds = localSongIds,
+            coverImageUri = playlist.coverUrl ?: resolvedSongs.firstOrNull()?.thumbnailHref
+        )
+
+        // Also save to AppDatabase for YouTube library compatibility
+        val appDatabase = AppDatabase.getInstance(context)
+        val playlistRepo = appDatabase.playlistRepository()
         val playlistInfo = PlaylistInfo(
-            id = playlistId,
+            id = createdPlaylist.id,
             title = playlist.title,
             coverHref = playlist.coverUrl ?: resolvedSongs.firstOrNull()?.thumbnailHref ?: "",
             lastSyncSongCount = resolvedSongs.size,
             lastSyncTimestamp = System.currentTimeMillis()
         )
-
-        val playlistRepo = appDatabase.playlistRepository()
         playlistRepo.insertPlaylist(playlistInfo)
         if (resolvedSongs.isNotEmpty()) {
             playlistRepo.insertSongs(resolvedSongs)
             val refs = resolvedSongs.mapIndexed { index, song ->
-                PlaylistSongCrossRef(playlistId, song.youtubeId, index)
+                PlaylistSongCrossRef(createdPlaylist.id, song.youtubeId, index)
             }
             playlistRepo.insertCrossRefs(refs)
         }
 
-        playlistId
+        createdPlaylist.id
     }
 }

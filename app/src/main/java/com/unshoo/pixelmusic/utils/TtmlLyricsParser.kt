@@ -297,11 +297,12 @@ internal object TtmlLyricsParser {
                     val wordsData = line.words.joinToString("|") { word ->
                         val startSec = word.startTimeMs / 1000.0
                         val endSec = word.endTimeMs / 1000.0
-                        "${word.text}:$startSec:$endSec"
+                        val cleanW = LyricsUtils.cleanLyricBrackets(word.text.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "")).trim()
+                        "$cleanW:$startSec:$endSec"
                     }
                     appendLine("<$wordsData>")
                 } else {
-                    appendLine("[$timeStr]$bgPrefix$agentPrefix${line.text}")
+                    appendLine("[$timeStr]$bgPrefix$agentPrefix${LyricsUtils.cleanLyricBrackets(line.text)}")
                 }
 
                 // Append any discrete background lines
@@ -309,14 +310,16 @@ internal object TtmlLyricsParser {
                     val bgTimeStr = formatLrcTimestamp(bgLine.startTimeMs)
                     if (bgLine.words.isNotEmpty()) {
                         val wordTaggedBg = bgLine.words.joinToString(" ") { word ->
-                            "<${formatLrcTimestamp(word.startTimeMs)}>${word.text}"
+                            val cleanW = LyricsUtils.cleanLyricBrackets(word.text.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "")).trim()
+                            "<${formatLrcTimestamp(word.startTimeMs)}>$cleanW"
                         }
                         appendLine("[$bgTimeStr]{bg}$wordTaggedBg")
 
                         val bgWordsData = bgLine.words.joinToString("|") { word ->
                             val startSec = word.startTimeMs / 1000.0
                             val endSec = word.endTimeMs / 1000.0
-                            "${word.text}:$startSec:$endSec"
+                            val cleanW = LyricsUtils.cleanLyricBrackets(word.text.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "")).trim()
+                            "$cleanW:$startSec:$endSec"
                         }
                         appendLine("<$bgWordsData>")
                     } else {

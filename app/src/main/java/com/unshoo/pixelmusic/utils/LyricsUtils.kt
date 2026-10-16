@@ -761,7 +761,7 @@ object LyricsUtils {
                 }
             }
         }
-        return text
+        return text.replace(Regex("""^[\(\)\[\]（）【】〔〕《》]+|[\(\)\[\]（）【】〔〕《》]+$"""), "").trim()
     }
 
     private val WHOLE_LINE_BRACKET_PATTERN = Regex("""^\s*[\(\[（【〔《](.+?)(?:[\)\]）】〕》]|\s*)$""")
@@ -949,10 +949,13 @@ object LyricsUtils {
                         rawWordsData.split("|").mapNotNull { part ->
                             val segments = part.split(":")
                             if (segments.size >= 3) {
-                                val wordText = segments[0]
+                                val rawWord = segments[0]
+                                val wordText = cleanLyricBrackets(rawWord.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "")).trim()
                                 val startSec = segments[1].toDoubleOrNull() ?: return@mapNotNull null
                                 val startMs = (startSec * 1000).toInt()
-                                SyncedWord(time = startMs, word = wordText, startsNewWord = true)
+                                if (wordText.isNotEmpty()) {
+                                    SyncedWord(time = startMs, word = wordText, startsNewWord = true)
+                                } else null
                             } else null
                         }
                     }.getOrNull()
