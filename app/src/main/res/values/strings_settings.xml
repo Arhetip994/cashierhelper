@@ -403,4 +403,17 @@
     <string name="lastfm_logged_in_as">Logged in as %1$s</string>
     <string name="lastfm_login_dialog_title">Link Last.fm Account</string>
     <string name="lastfm_login_dialog_desc">Enter your Last.fm account credentials to authorize scrobbling.</string>
+    <!-- Audio Quality Bottom Sheet -->
+    <string name="audio_quality_sheet_title">Audio Quality</string>
+    <string name="audio_quality_sheet_current">Current stream: %1$s</string>
+    <string name="audio_quality_auto_title">Auto (Adaptive)</string>
+    <string name="audio_quality_auto_desc">Automatically adjusts bitrate based on network speed</string>
+    <string name="audio_quality_high_title">High Quality</string>
+    <string name="audio_quality_high_desc">Up to 320 kbps (AAC/MP3) or Lossless FLAC when available</string>
+    <string name="audio_quality_medium_title">Standard Quality</string>
+    <string name="audio_quality_medium_desc">Optimal balance (128–160 kbps Opus/MP3)</string>
+    <string name="audio_quality_low_title">Data Saver</string>
+    <string name="audio_quality_low_desc">Fastest load on weak networks (48–96 kbps)</string>
+    <string name="audio_quality_switched_toast">Streaming quality switched to %1$s</string>
+    <string name="audio_quality_lossless_note">Lossless sources (Deezer Hi-Fi, Tidal, Apple Music ALAC) can be configured in Lossless Settings.</string>
 </resources>

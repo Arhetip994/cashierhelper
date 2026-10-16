@@ -88,6 +88,7 @@ import com.unshoo.pixelmusic.data.preferences.ThemePreferencesRepository
 import com.unshoo.pixelmusic.data.preferences.UserPreferencesRepository
 import com.unshoo.pixelmusic.data.preferences.AlbumArtQuality
 import com.unshoo.pixelmusic.data.preferences.ThemePreference
+import com.unshoo.pixelmusic.data.preferences.StreamingAudioQuality
 import com.unshoo.pixelmusic.data.repository.LyricsSearchResult
 import com.unshoo.pixelmusic.data.repository.MusicRepository
 import com.unshoo.pixelmusic.data.repository.ArtistImageRepository
@@ -424,6 +425,45 @@ class PlayerViewModel @Inject constructor(
      */
     val currentPlaybackPosition: StateFlow<Long> = playbackStateHolder.currentPosition
     val playbackHistory = listeningStatsTracker.playbackHistory
+
+    val streamingAudioQualityWifi: StateFlow<StreamingAudioQuality> =
+        userPreferencesRepository.streamingAudioQualityWifiFlow.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = StreamingAudioQuality.AUTO
+        )
+
+    val streamingAudioQualityMobile: StateFlow<StreamingAudioQuality> =
+        userPreferencesRepository.streamingAudioQualityMobileFlow.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = StreamingAudioQuality.AUTO
+        )
+
+    fun setStreamingAudioQuality(quality: StreamingAudioQuality) {
+        viewModelScope.launch {
+            userPreferencesRepository.setStreamingAudioQualityWifi(quality)
+            userPreferencesRepository.setStreamingAudioQualityMobile(quality)
+            com.unshoo.pixelmusic.data.remote.youtube.YoutubeHelper.clearStreamCache()
+
+            // Seamlessly refresh current playing track if online stream
+            val currentSong = stablePlayerState.value.currentSong
+            if (currentSong != null && !currentSong.isLocal) {
+                val controller = mediaController ?: return@launch
+                val currentIndex = controller.currentMediaItemIndex
+                if (currentIndex >= 0 && currentIndex < controller.mediaItemCount) {
+                    val currentItem = controller.getMediaItemAt(currentIndex)
+                    val currentPos = controller.currentPosition.coerceAtLeast(0L)
+                    val wasPlaying = controller.isPlaying
+                    controller.replaceMediaItem(currentIndex, currentItem)
+                    controller.seekTo(currentIndex, currentPos)
+                    if (wasPlaying) {
+                        controller.play()
+                    }
+                }
+            }
+        }
+    }
 
     // Removed: _masterAllSongs was a duplicate of libraryStateHolder.allSongs
     // All reads now delegate to libraryStateHolder.allSongs

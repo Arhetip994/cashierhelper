@@ -312,6 +312,7 @@ fun FullPlayerContent(
     }
 
     var showFetchLyricsDialog by remember { mutableStateOf(false) }
+    var showAudioQualitySheet by remember { mutableStateOf(false) }
     var totalDrag by remember { mutableStateOf(0f) }
 
     val context = LocalContext.current
@@ -376,6 +377,21 @@ fun FullPlayerContent(
     // Lógica para el botón de Lyrics en el reproductor expandido
     val onLyricsClick = {
         showLyricsSheet = true
+    }
+
+    if (showAudioQualitySheet) {
+        com.unshoo.pixelmusic.presentation.components.AudioQualityBottomSheet(
+            song = song,
+            audioMetaLabel = formatAudioMetaLabel(
+                mimeType = playbackAudioMetadata.mimeType ?: song.takeIf { it.isLocal }?.mimeType,
+                bitrate = playbackAudioMetadata.bitrate ?: song.takeIf { it.isLocal }?.bitrate,
+                sampleRate = playbackAudioMetadata.sampleRate ?: song.takeIf { it.isLocal }?.sampleRate,
+                bitDepth = playbackAudioMetadata.bitDepth,
+                formatTag = playbackAudioMetadata.formatTag
+            ),
+            playerViewModel = playerViewModel,
+            onDismiss = { showAudioQualitySheet = false }
+        )
     }
 
     if (showFetchLyricsDialog) {
@@ -573,6 +589,7 @@ fun FullPlayerContent(
             playbackMetadataBitDepth = playbackAudioMetadata.bitDepth,
             playbackMetadataFormatTag = playbackAudioMetadata.formatTag,
             onFormatBadgeClick = { playerViewModel.selectSongForInfo(song) },
+            onFormatBadgeLongClick = { showAudioQualitySheet = true },
             currentPositionProvider = currentPositionProvider,
             totalDurationValue = totalDurationValue,
             showPlayerFileInfo = showPlayerFileInfo,
@@ -1794,6 +1811,7 @@ private fun FullPlayerProgressSection(
     playbackMetadataBitDepth: Int? = null,
     playbackMetadataFormatTag: String? = null,
     onFormatBadgeClick: () -> Unit = {},
+    onFormatBadgeLongClick: () -> Unit = {},
     currentPositionProvider: () -> Long,
     totalDurationValue: Long,
     showPlayerFileInfo: Boolean,
@@ -1830,6 +1848,7 @@ private fun FullPlayerProgressSection(
         audioBitDepth = audioBitDepth,
         audioFormatTag = audioFormatTag,
         onFormatBadgeClick = onFormatBadgeClick,
+        onFormatBadgeLongClick = onFormatBadgeLongClick,
         showAudioFileInfo = showPlayerFileInfo,
         onSeek = onSeek,
         expansionFractionProvider = expansionFractionProvider,
@@ -2304,6 +2323,7 @@ private fun PlayerProgressBarSection(
     audioBitDepth: Int? = null,
     audioFormatTag: String? = null,
     onFormatBadgeClick: () -> Unit = {},
+    onFormatBadgeLongClick: () -> Unit = {},
     showAudioFileInfo: Boolean,
     onSeek: (Long) -> Unit,
     expansionFractionProvider: () -> Float,
@@ -2510,7 +2530,8 @@ private fun PlayerProgressBarSection(
                 textColor = timeTextColor,
                 audioMetaLabel = displayAudioMetaLabel,
                 horizontalTrackInset = progressSectionHorizontalInset,
-                onBadgeClick = onFormatBadgeClick
+                onBadgeClick = onFormatBadgeClick,
+                onBadgeLongClick = onFormatBadgeLongClick
             )
         }
     }
@@ -2560,6 +2581,7 @@ private fun EfficientSlider(
     )
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun EfficientTimeLabels(
     positionState: androidx.compose.runtime.State<Long>,
@@ -2568,7 +2590,8 @@ private fun EfficientTimeLabels(
     textColor: Color,
     audioMetaLabel: String?,
     horizontalTrackInset: Dp,
-    onBadgeClick: (() -> Unit)? = null
+    onBadgeClick: (() -> Unit)? = null,
+    onBadgeLongClick: (() -> Unit)? = null
 ) {
     val coarsePositionMs by remember(isVisible, positionState) {
         derivedStateOf {
@@ -2629,9 +2652,9 @@ private fun EfficientTimeLabels(
                     modifier = Modifier
                         .padding(horizontal = 48.dp)
                         .clip(RoundedCornerShape(999.dp))
-                        .then(
-                            if (onBadgeClick != null) Modifier.clickable(onClick = onBadgeClick)
-                            else Modifier
+                        .combinedClickable(
+                            onClick = { onBadgeClick?.invoke() },
+                            onLongClick = { onBadgeLongClick?.invoke() }
                         ),
                     shape = RoundedCornerShape(999.dp),
                     color = textColor.copy(alpha = 0.14f),

@@ -401,4 +401,17 @@
     <string name="lastfm_logged_in_as">Вы вошли как %1$s</string>
     <string name="lastfm_login_dialog_title">Подключение аккаунта Last.fm</string>
     <string name="lastfm_login_dialog_desc">Введите данные вашего аккаунта Last.fm для авторизации скробблинга.</string>
+    <!-- Audio Quality Bottom Sheet -->
+    <string name="audio_quality_sheet_title">Качество аудио</string>
+    <string name="audio_quality_sheet_current">Текущий поток: %1$s</string>
+    <string name="audio_quality_auto_title">Авто (Адаптивное)</string>
+    <string name="audio_quality_auto_desc">Автоматический выбор битрейта под скорость интернета</string>
+    <string name="audio_quality_high_title">Высокое качество</string>
+    <string name="audio_quality_high_desc">До 320 kbps (AAC/MP3) или Lossless FLAC при наличии источника</string>
+    <string name="audio_quality_medium_title">Стандартное качество</string>
+    <string name="audio_quality_medium_desc">Оптимальный баланс звука и трафика (128–160 kbps Opus/MP3)</string>
+    <string name="audio_quality_low_title">Экономия трафика</string>
+    <string name="audio_quality_low_desc">Быстрый запуск при слабом интернете (48–96 kbps)</string>
+    <string name="audio_quality_switched_toast">Качество стриминга переключено на %1$s</string>
+    <string name="audio_quality_lossless_note">Lossless-источники (Deezer Hi-Fi, Tidal, Apple Music ALAC) настраиваются в разделе Lossless.</string>
 </resources>
