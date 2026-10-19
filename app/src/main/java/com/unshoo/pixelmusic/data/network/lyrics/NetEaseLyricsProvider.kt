@@ -19,7 +19,7 @@ class NetEaseLyricsProvider @Inject constructor(
     companion object {
         private const val TAG = "NetEaseLyricsProvider"
         private const val SEARCH_URL = "https://music.163.com/api/cloudsearch/pc?type=1&limit=5&s="
-        private const val LYRIC_URL = "https://music.163.com/api/song/lyric?lv=-1&kv=-1&tv=-1&id="
+        private const val LYRIC_URL = "https://interface3.music.163.com/api/song/lyric?cp=false&tv=0&lv=0&rv=0&kv=0&yv=0&ytv=0&yrv=0&id="
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
     }
 
@@ -29,6 +29,7 @@ class NetEaseLyricsProvider @Inject constructor(
             val searchRequest = Request.Builder()
                 .url(SEARCH_URL + query)
                 .header("User-Agent", USER_AGENT)
+                .header("Referer", "https://music.163.com/")
                 .get()
                 .build()
 
@@ -74,6 +75,7 @@ class NetEaseLyricsProvider @Inject constructor(
             val lyricRequest = Request.Builder()
                 .url(LYRIC_URL + songId)
                 .header("User-Agent", USER_AGENT)
+                .header("Referer", "https://music.163.com/")
                 .get()
                 .build()
 
@@ -81,10 +83,20 @@ class NetEaseLyricsProvider @Inject constructor(
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body?.string() ?: return@withContext null
                 val json = gson.fromJson(body, JsonObject::class.java)
-                val lrcObj = json.getAsJsonObject("lrc") ?: return@withContext null
-                val lyricText = lrcObj.get("lyric")?.asString
+
+                // 1. Priority 1: YRC (Word-by-word syllable karaoke)
+                val yrcObj = json.getAsJsonObject("yrc")
+                val yrcText = yrcObj?.get("lyric")?.asString
+                if (!yrcText.isNullOrBlank()) {
+                    Log.d(TAG, "NetEase YRC word-by-word lyrics fetched successfully for $songId")
+                    return@withContext yrcText
+                }
+
+                // 2. Priority 2: LRC (Standard line sync)
+                val lrcObj = json.getAsJsonObject("lrc")
+                val lyricText = lrcObj?.get("lyric")?.asString
                 if (!lyricText.isNullOrBlank()) {
-                    Log.d(TAG, "NetEase lyrics fetched successfully for $songId")
+                    Log.d(TAG, "NetEase plain LRC lyrics fetched successfully for $songId")
                     return@withContext lyricText
                 }
             }

@@ -740,6 +740,8 @@ object LyricsUtils {
     // standard LRC minute value (max 99).
     private val KUGOU_LINE_REGEX = Pattern.compile("^\\[(\\d+),(\\d+)](.*)$")
     private val KUGOU_WORD_PATTERN = Pattern.compile("<(\\d+),(\\d+),(\\d+)>([^<]*)")
+    // NetEase YRC syllable word format: (wordTimeMs,wordDurationMs,flags)word
+    private val YRC_WORD_PATTERN = Pattern.compile("\\((\\d+),(\\d+),(\\d+)\\)([^(]*)")
 
     fun cleanLyricBrackets(raw: String): String {
         var text = raw.trim()
@@ -1168,21 +1170,19 @@ object LyricsUtils {
             // Skip metadata tags like [ti:…] [ar:…] [offset:…]
             if (LRC_METADATA_PATTERN.matcher(line).matches()) return@any false
             val m = KUGOU_LINE_REGEX.matcher(line)
-            m.matches() && (m.group(1)?.toLongOrNull() ?: 0L) > 999L
+            m.matches() && ((m.group(1)?.toLongOrNull() ?: 0L) > 999L || line.contains('<') || YRC_WORD_PATTERN.matcher(line).find())
         }
     }
 
     /**
-     * Parses a Kugou / Paxsenix word-by-word LRC file into [Lyrics].
+     * Parses a Kugou / Paxsenix / NetEase YRC word-by-word LRC file into [Lyrics].
      *
      * Line format:
-     *   [lineStartMs,lineDurationMs]<wordOffset1Ms,dur,0>word1<wordOffset2Ms,dur,0>word2…
+     *   Kugou : [lineStartMs,lineDurationMs]<wordOffset1Ms,dur,0>word1…
+     *   YRC   : [lineStartMs,lineDurationMs](wordTimeMs,dur,0)word1…
      *
-     * Word offsets are *relative* to the line start.
-     * A word token with offset 0 and no preceding tokens means the token is the
-     * line itself; subsequent 0-offset tokens are continuations (startsNewWord = false).
-     *
-     * An optional [offset:N] header (milliseconds) shifts all timestamps.
+     * Kugou word offsets are relative to the line start.
+     * NetEase YRC word timestamps are absolute milliseconds.
      */
     private fun parseKugouLyrics(text: String): Lyrics {
         val globalOffsetMs = text.lines()
@@ -1201,19 +1201,29 @@ object LyricsUtils {
 
             val headerMatcher = KUGOU_LINE_REGEX.matcher(line)
             if (!headerMatcher.matches()) continue
-            val lineStartMs = (headerMatcher.group(1)?.toLongOrNull() ?: continue) + globalOffsetMs
-            if (lineStartMs <= 999L && globalOffsetMs == 0L) continue // guard: not a Kugou line
+            val rawLineStart = headerMatcher.group(1)?.toLongOrNull() ?: continue
+            val lineDuration = headerMatcher.group(2)?.toLongOrNull() ?: 0L
+            val lineStartMs = rawLineStart + globalOffsetMs
+            if (lineStartMs <= 999L && globalOffsetMs == 0L && !line.contains('<') && !YRC_WORD_PATTERN.matcher(line).find()) continue // guard: not a Kugou/YRC line
             val body = headerMatcher.group(3) ?: ""
+
+            val isYrc = !body.contains('<') && YRC_WORD_PATTERN.matcher(body).find()
+            val wordMatcher = if (isYrc) YRC_WORD_PATTERN.matcher(body) else KUGOU_WORD_PATTERN.matcher(body)
 
             // Build word list
             val words = mutableListOf<SyncedWord>()
-            val wordMatcher = KUGOU_WORD_PATTERN.matcher(body)
             var previousEndsWithSpace = true // first word always starts a new word
 
             while (wordMatcher.find()) {
-                val wordOffsetMs = wordMatcher.group(1)?.toLongOrNull() ?: 0L
+                val rawTimeOrOffset = wordMatcher.group(1)?.toLongOrNull() ?: 0L
                 val wordDurMs = wordMatcher.group(2)?.toLongOrNull() ?: 0L
                 val rawText = wordMatcher.group(4) ?: ""
+
+                val wordTimeMs = if (isYrc && rawTimeOrOffset >= rawLineStart) {
+                    rawTimeOrOffset + globalOffsetMs
+                } else {
+                    lineStartMs + rawTimeOrOffset
+                }
 
                 val startsNew = previousEndsWithSpace || rawText.firstOrNull()?.isWhitespace() == true
                 val wordText = rawText.trim()
@@ -1223,26 +1233,32 @@ object LyricsUtils {
 
                 words.add(
                     SyncedWord(
-                        time = (lineStartMs + wordOffsetMs).toInt(),
+                        time = wordTimeMs.toInt(),
                         word = wordText,
                         startsNewWord = startsNew,
-                        endTime = if (wordDurMs > 0) (lineStartMs + wordOffsetMs + wordDurMs).toInt() else null
+                        endTime = if (wordDurMs > 0) (wordTimeMs + wordDurMs).toInt() else null
                     )
                 )
             }
 
-            // Plain text: strip all <…> tokens
-            val rawPlainText = KUGOU_WORD_PATTERN.toRegex().replace(body) { it.groupValues[4] }.trim()
+            // Plain text: strip all <…> or (…) tokens
+            val rawPlainText = if (isYrc) {
+                YRC_WORD_PATTERN.toRegex().replace(body) { it.groupValues[4] }.trim()
+            } else {
+                KUGOU_WORD_PATTERN.toRegex().replace(body) { it.groupValues[4] }.trim()
+            }
             if (rawPlainText.isEmpty() && words.isEmpty()) continue
             if (isLyricsCreditLine(rawPlainText)) continue
 
             var mainLine = cleanLyricBrackets(rawPlainText.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
             var subPhrases: List<com.unshoo.pixelmusic.data.model.SubPhrase>? = null
             var lineWords: List<SyncedWord>? = words.takeIf { it.isNotEmpty() }
+            var isBackground = false
+
             if (INLINE_BRACKET_PATTERN.containsMatchIn(rawPlainText)) {
                 val matches = INLINE_BRACKET_PATTERN.findAll(rawPlainText).map { it.groupValues[1].trim() }.filter { it.isNotEmpty() }.toList()
                 if (matches.isNotEmpty()) {
-                    mainLine = cleanLyricBrackets(INLINE_BRACKET_PATTERN.replace(rawPlainText, " ").replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), " ").replace(Regex("""\s+"""), " ").trim())
+                    val replacedLead = cleanLyricBrackets(INLINE_BRACKET_PATTERN.replace(rawPlainText, " ").replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), " ").replace(Regex("""\s+"""), " ").trim())
 
                     val leadWords = mutableListOf<SyncedWord>()
                     val backingWords = mutableListOf<SyncedWord>()
@@ -1284,34 +1300,44 @@ object LyricsUtils {
                         }
                     }
 
-                    subPhrases = matches.mapNotNull { bgText ->
-                        val cleanBg = cleanLyricBrackets(bgText.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
-                        if (cleanBg.isEmpty()) null else {
-                            val bgStart = backingWords.firstOrNull()?.time 
-                                ?: (if (words.isNotEmpty()) (words.last().time - 500).coerceAtLeast(lineStartMs.toInt()) else lineStartMs.toInt())
-                            val bgEnd = backingWords.lastOrNull()?.let { it.endTime ?: (it.time + 1200) } 
-                                ?: (bgStart + 3000)
-                            com.unshoo.pixelmusic.data.model.SubPhrase(
-                                startTime = bgStart,
-                                endTime = bgEnd,
-                                text = cleanBg,
-                                words = backingWords.ifEmpty { null }
-                            )
-                        }
-                    }.takeIf { it.isNotEmpty() }
-
-                    if (leadWords.isNotEmpty()) {
-                        lineWords = leadWords
+                    if (replacedLead.isEmpty()) {
+                        mainLine = cleanLyricBrackets(rawPlainText.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
+                        lineWords = backingWords.ifEmpty { words }
+                        isBackground = true
+                        subPhrases = null
+                    } else {
+                        mainLine = replacedLead
+                        lineWords = leadWords.takeIf { it.isNotEmpty() }
+                        subPhrases = matches.mapNotNull { bgText ->
+                            val cleanBg = cleanLyricBrackets(bgText.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
+                            if (cleanBg.isEmpty()) null else {
+                                val bgStart = backingWords.firstOrNull()?.time 
+                                    ?: (if (words.isNotEmpty()) (words.last().time - 500).coerceAtLeast(lineStartMs.toInt()) else lineStartMs.toInt())
+                                val bgEnd = backingWords.lastOrNull()?.let { it.endTime ?: (it.time + 1200) } 
+                                    ?: (bgStart + 3000)
+                                com.unshoo.pixelmusic.data.model.SubPhrase(
+                                    startTime = bgStart,
+                                    endTime = bgEnd,
+                                    text = cleanBg,
+                                    words = backingWords.ifEmpty { null }
+                                )
+                            }
+                        }.takeIf { it.isNotEmpty() }
                     }
                 }
             }
+
+            val calcEndTime = (if (lineDuration > 0) lineStartMs + lineDuration else null)?.toInt()
+                ?: words.lastOrNull()?.let { it.endTime ?: (it.time + 1000) }
 
             syncedLines.add(
                 SyncedLine(
                     time = lineStartMs.toInt(),
                     line = mainLine,
                     words = lineWords,
-                    subPhrases = subPhrases
+                    subPhrases = subPhrases,
+                    isBackground = isBackground,
+                    endTime = calcEndTime
                 )
             )
         }
