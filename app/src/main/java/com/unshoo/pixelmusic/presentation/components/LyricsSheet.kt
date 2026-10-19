@@ -1595,13 +1595,16 @@ fun SyncedLyricsList(
         (smoothPosition + lyricsSyncOffset).coerceAtLeast(0L)
     }
     val isPreviewSeeking = positionOverrideMs != null
-    val currentLineIndex by remember(position, lines) {
+    val effectiveLines = remember(lines) {
+        LyricsUtils.splitMultiLineSyncedLines(lines)
+    }
+    val currentLineIndex by remember(position, effectiveLines) {
         derivedStateOf {
-            resolveCurrentLineIndex(lines = lines, position = position)
+            resolveCurrentLineIndex(lines = effectiveLines, position = position)
         }
     }
-    var hasAlignedInitialLine by remember(lines) { mutableStateOf(false) }
-    var lastAutoScrolledLineIndex by remember(lines) { mutableIntStateOf(-1) }
+    var hasAlignedInitialLine by remember(effectiveLines) { mutableStateOf(false) }
+    var lastAutoScrolledLineIndex by remember(effectiveLines) { mutableIntStateOf(-1) }
 
     BoxWithConstraints(modifier = modifier) {
         val metrics = remember(maxHeight, highlightZoneFraction, highlightOffsetDp) {
@@ -1618,9 +1621,9 @@ fun SyncedLyricsList(
         )
         val flingBehavior = rememberSnapperFlingBehavior(layoutInfo = snapperLayoutInfo)
 
-        LaunchedEffect(currentLineIndex, lines.size, metrics, isPreviewSeeking) {
-            if (lines.isEmpty()) return@LaunchedEffect
-            if (currentLineIndex !in lines.indices) return@LaunchedEffect
+        LaunchedEffect(currentLineIndex, effectiveLines.size, metrics, isPreviewSeeking) {
+            if (effectiveLines.isEmpty()) return@LaunchedEffect
+            if (currentLineIndex !in effectiveLines.indices) return@LaunchedEffect
             if (listState.layoutInfo.totalItemsCount == 0) return@LaunchedEffect
 
             if (!hasAlignedInitialLine) {
@@ -1690,18 +1693,18 @@ fun SyncedLyricsList(
                 contentPadding = contentPadding
             ) {
                 itemsIndexed(
-                    items = lines,
+                    items = effectiveLines,
                     key = { index, item -> "${item.time}_$index" }
                 ) { index, line ->
-                    val nextTime = lines.subList(index + 1, lines.size).firstOrNull { it.time > line.time }?.time
-                        ?: lines.getOrNull(index + 1)?.time
+                    val nextTime = effectiveLines.subList(index + 1, effectiveLines.size).firstOrNull { it.time > line.time }?.time
+                        ?: effectiveLines.getOrNull(index + 1)?.time
                         ?: Int.MAX_VALUE
                     val distanceFromCurrent = if (currentLineIndex != -1) {
                         when {
                             // Subphrase paired with preceding lead line: keep both in focus
                             line.isBackground && index > 0 && currentLineIndex == index - 1 -> 0
                             // Lead line paired with following subphrase: keep both in focus
-                            !line.isBackground && index + 1 < lines.size && lines[index + 1].isBackground && currentLineIndex == index + 1 -> 0
+                            !line.isBackground && index + 1 < effectiveLines.size && effectiveLines[index + 1].isBackground && currentLineIndex == index + 1 -> 0
                             else -> abs(currentLineIndex - index)
                         }
                     } else 100
@@ -1976,64 +1979,80 @@ fun LyricLineRow(
                 .padding(vertical = verticalPadding, horizontal = 8.dp),
             horizontalAlignment = horizontalAlignment
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                contentAlignment = boxAlignment
-            ) {
-                // Invisible bold text to reserve layout space and prevent reflow
-                Text(
-                    text = sanitizedLine,
-                    style = effectiveStyle,
-                    color = Color.Transparent,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = textAlign,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-                // Base unsung / normal line text
-                Text(
-                    text = sanitizedLine,
-                    style = effectiveStyle,
-                    color = if (isCurrentLine && useAnimatedLyrics) unhighlightedColor else lineColor,
-                    fontWeight = if (isCurrentLine) FontWeight.Bold else FontWeight.Normal,
-                    textAlign = textAlign,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-                // Progressive sweep fill for active line (Apple Music shimmering line style)
-                if (isCurrentLine && useAnimatedLyrics) {
-                    val rawProgress = if (lineEndTime > line.time) {
-                        ((position - line.time.toLong()).toFloat() / (lineEndTime - line.time).toFloat()).coerceIn(0f, 1f)
-                    } else 1f
+            val subLines = remember(sanitizedLine) {
+                sanitizedLine.split('\n').map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { listOf(sanitizedLine) }
+            }
+            val numSubLines = subLines.size
 
-                    val feather = 0.05f
-                    val shimmerWidth = 0.12f
-                    val sweepBrush = Brush.horizontalGradient(
-                        colorStops = arrayOf(
-                            0.0f to accentColor,
-                            (rawProgress - shimmerWidth).coerceAtLeast(0f) to accentColor,
-                            (rawProgress - feather).coerceIn(0f, 1f) to Color.White.copy(alpha = 0.95f),
-                            rawProgress to Color.White,
-                            (rawProgress + feather).coerceIn(0f, 1f) to accentColor.copy(alpha = 0.85f),
-                            (rawProgress + shimmerWidth).coerceAtMost(1f) to Color.Transparent,
-                            1.0f to Color.Transparent
-                        )
-                    )
-
+            subLines.forEachIndexed { subIndex, subText ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    contentAlignment = boxAlignment
+                ) {
+                    // Invisible bold text to reserve layout space and prevent reflow
                     Text(
-                        text = sanitizedLine,
-                        style = effectiveStyle.copy(
-                            brush = sweepBrush,
-                            shadow = Shadow(
-                                color = accentColor.copy(alpha = 0.35f),
-                                offset = Offset.Zero,
-                                blurRadius = 10f
-                            )
-                        ),
+                        text = subText,
+                        style = effectiveStyle,
+                        color = Color.Transparent,
                         fontWeight = FontWeight.Bold,
                         textAlign = textAlign,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
+                    // Base unsung / normal line text
+                    Text(
+                        text = subText,
+                        style = effectiveStyle,
+                        color = if (isCurrentLine && useAnimatedLyrics) unhighlightedColor else lineColor,
+                        fontWeight = if (isCurrentLine) FontWeight.Bold else FontWeight.Normal,
+                        textAlign = textAlign,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                    // Progressive sweep fill for active line (Apple Music shimmering line style)
+                    if (isCurrentLine && useAnimatedLyrics) {
+                        val totalDuration = (lineEndTime - line.time).coerceAtLeast(1L)
+                        val subDuration = totalDuration / numSubLines
+                        val subStart = line.time.toLong() + (subIndex * subDuration)
+                        val subEnd = subStart + subDuration
+
+                        val rawProgress = if (position <= subStart) {
+                            0f
+                        } else if (position >= subEnd) {
+                            1f
+                        } else {
+                            ((position - subStart).toFloat() / subDuration.toFloat()).coerceIn(0f, 1f)
+                        }
+
+                        val feather = 0.05f
+                        val shimmerWidth = 0.12f
+                        val sweepBrush = Brush.horizontalGradient(
+                            colorStops = arrayOf(
+                                0.0f to accentColor,
+                                (rawProgress - shimmerWidth).coerceAtLeast(0f) to accentColor,
+                                (rawProgress - feather).coerceIn(0f, 1f) to Color.White.copy(alpha = 0.95f),
+                                rawProgress to Color.White,
+                                (rawProgress + feather).coerceIn(0f, 1f) to accentColor.copy(alpha = 0.85f),
+                                (rawProgress + shimmerWidth).coerceAtMost(1f) to Color.Transparent,
+                                1.0f to Color.Transparent
+                            )
+                        )
+
+                        Text(
+                            text = subText,
+                            style = effectiveStyle.copy(
+                                brush = sweepBrush,
+                                shadow = Shadow(
+                                    color = accentColor.copy(alpha = 0.35f),
+                                    offset = Offset.Zero,
+                                    blurRadius = 10f
+                                )
+                            ),
+                            fontWeight = FontWeight.Bold,
+                            textAlign = textAlign,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
 
@@ -2122,10 +2141,13 @@ fun LyricLineRow(
                                 val isHighlighted = isCurrentLine && wordIndex == activeIdx
                                 val isPast = isCurrentLine && activeIdx >= 0 && wordIndex < activeIdx
                                 val wordStart = word.time.toLong()
-                                val nextWordTime = if (sanitizedWords != null && wordIndex + 1 < sanitizedWords.size) {
+                                val explicitEnd = word.endTime?.toLong()
+                                val nextWordTime = if (explicitEnd != null && explicitEnd > wordStart) {
+                                    explicitEnd
+                                } else if (sanitizedWords != null && wordIndex + 1 < sanitizedWords.size) {
                                     sanitizedWords[wordIndex + 1].time.toLong()
                                 } else {
-                                    lineEndTime
+                                    line.endTime?.toLong() ?: minOf(wordStart + 1500L, lineEndTime)
                                 }
                                 val wordEnd = normalizeWordEndTime(wordStart, nextWordTime, lineEndTime)
                                 LyricWordSpan(
@@ -2303,22 +2325,59 @@ private fun SubPhrasesSection(
                         }
                     }
                 } else {
-                    val alpha by animateFloatAsState(
-                        targetValue = if (isActive) 1f else 0.75f,
-                        animationSpec = tween(durationMillis = 200),
-                        label = "subPhraseActiveAlpha"
-                    )
+                    val boxAlignment = when (alignment) {
+                        Alignment.CenterHorizontally -> Alignment.Center
+                        Alignment.End -> Alignment.CenterEnd
+                        else -> Alignment.CenterStart
+                    }
+                    Box(
+                        modifier = Modifier.padding(vertical = 2.dp, horizontal = 4.dp),
+                        contentAlignment = boxAlignment
+                    ) {
+                        // Base unsung / background subphrase text
+                        Text(
+                            text = cleanSubPhraseText,
+                            style = subStyle,
+                            color = if (useAnimatedLyrics && (isActive || position >= subStart)) unhighlightedColor else accentColor.copy(alpha = 0.5f),
+                            fontWeight = FontWeight.Medium,
+                            textAlign = textAlign
+                        )
 
-                    Text(
-                        text = cleanSubPhraseText,
-                        style = subStyle.copy(
-                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
-                        ),
-                        color = accentColor.copy(alpha = alpha),
-                        textAlign = textAlign,
-                        modifier = Modifier
-                            .padding(vertical = 2.dp, horizontal = 4.dp)
-                    )
+                        // Progressive shimmering sweep ("переливание") when appearing / active
+                        if (useAnimatedLyrics && (isActive || position >= subStart)) {
+                            val rawProgress = if (subEnd > subStart) {
+                                ((position - subStart).toFloat() / (subEnd - subStart).toFloat()).coerceIn(0f, 1f)
+                            } else 1f
+
+                            val feather = 0.06f
+                            val shimmerWidth = 0.14f
+                            val sweepBrush = Brush.horizontalGradient(
+                                colorStops = arrayOf(
+                                    0.0f to accentColor,
+                                    (rawProgress - shimmerWidth).coerceAtLeast(0f) to accentColor,
+                                    (rawProgress - feather).coerceIn(0f, 1f) to Color.White.copy(alpha = 0.95f),
+                                    rawProgress to Color.White,
+                                    (rawProgress + feather).coerceIn(0f, 1f) to accentColor.copy(alpha = 0.85f),
+                                    (rawProgress + shimmerWidth).coerceAtMost(1f) to Color.Transparent,
+                                    1.0f to Color.Transparent
+                                )
+                            )
+
+                            Text(
+                                text = cleanSubPhraseText,
+                                style = subStyle.copy(
+                                    brush = sweepBrush,
+                                    shadow = Shadow(
+                                        color = accentColor.copy(alpha = 0.40f),
+                                        offset = Offset.Zero,
+                                        blurRadius = 10f
+                                    )
+                                ),
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = textAlign
+                            )
+                        }
+                    }
                 }
             }
         }

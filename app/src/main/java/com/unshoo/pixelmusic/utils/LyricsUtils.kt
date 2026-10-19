@@ -725,10 +725,10 @@ private fun String.capitalizeFirstLetter(): String {
 
 object LyricsUtils {
 
-    private val LRC_LINE_REGEX = Pattern.compile("^\\[(\\d{2}):(\\d{2})[.:](\\d{2,3})](.*)$")
-    private val LRC_WORD_REGEX = Pattern.compile("<(\\d{2}):(\\d{2})[.:](\\d{2,3})>([^<]*)")
-    private val LRC_WORD_TAG_REGEX = Regex("<\\d{2}:\\d{2}[.:]\\d{2,3}>")
-    private val LRC_WORD_SPLIT_REGEX = Regex("(?=<\\d{2}:\\d{2}[.:]\\d{2,3}>)")
+    private val LRC_LINE_REGEX = Pattern.compile("^\\[(\\d{1,2}):(\\d{2})[.:](\\d{2,3})](.*)$")
+    private val LRC_WORD_REGEX = Pattern.compile("<(\\d{1,2}):(\\d{2})[.:](\\d{2,3})>([^<]*)")
+    private val LRC_WORD_TAG_REGEX = Regex("<\\d{1,2}:\\d{2}[.:]\\d{2,3}>")
+    private val LRC_WORD_SPLIT_REGEX = Regex("(?=<\\d{1,2}:\\d{2}[.:]\\d{2,3}>)")
     private val LRC_TIMESTAMP_TAG_REGEX = Regex("\\[\\d{1,2}:\\d{2}(?:[.:]\\d{1,3})?]")
     private val TRANSLATION_CREDIT_REGEX = Regex("^\\s*by\\s*[:：].+", RegexOption.IGNORE_CASE)
     private val LRC_METADATA_PATTERN = Pattern.compile("^\\[[a-zA-Z]+:.*]$")
@@ -844,10 +844,10 @@ object LyricsUtils {
                 val lineTimestamp = minutes * 60 * 1000 + seconds * 1000 + millis
 
                 // Enhanced word-by-word parsing
-                if (text.contains(LRC_WORD_TAG_REGEX)) {
+                if (textWithTags.contains(LRC_WORD_TAG_REGEX)) {
                     val words = mutableListOf<SyncedWord>()
-                    val parts = text.split(LRC_WORD_SPLIT_REGEX)
-                    val rawDisplayText = LRC_WORD_TAG_REGEX.replace(text, "")
+                    val parts = textWithTags.split(LRC_WORD_SPLIT_REGEX)
+                    val rawDisplayText = LRC_WORD_TAG_REGEX.replace(textWithTags, "")
                     var pendingWordBoundary = false
 
                     for (part in parts) {
@@ -1044,24 +1044,19 @@ object LyricsUtils {
                 }
 
                 val stripped = stripLrcTimestamps(stripFormatCharacters(line))
-                // If the file was already detected as synced and at least one SyncedLine
-                // exists, treat this line as a continuation of the previous one.
+                // Do NOT merge untimed lines into the previous line with \n.
+                // Merging lines causes them to clump together into multiple lines and highlight simultaneously.
                 if (isSynced && syncedLines.isNotEmpty()) {
-                    val last = syncedLines.removeAt(syncedLines.lastIndex)
-                    // Keep the previous text and append the new line with a newline break.
-                    val mergedLineText = if (last.line.isEmpty()) {
-                        stripped
-                    } else {
-                        last.line + "\n" + stripped
-                    }
-                    // Preserve the existing synced word list if present.
-                    val merged = if (last.words?.isNotEmpty() == true) {
-                        SyncedLine(last.time, mergedLineText, last.words, isBackground = last.isBackground, agent = last.agent)
-                    } else {
-                        SyncedLine(last.time, mergedLineText, isBackground = last.isBackground, agent = last.agent)
-                    }
-
-                    syncedLines.add(merged)
+                    val last = syncedLines.last()
+                    val interpolatedTime = last.time + 2800
+                    syncedLines.add(
+                        SyncedLine(
+                            time = interpolatedTime,
+                            line = cleanLyricBrackets(stripped),
+                            isBackground = false,
+                            agent = last.agent
+                        )
+                    )
                 } else {
                     // No sync markers found — treat as plain text.
                     plainLines.add(stripped)
@@ -1084,7 +1079,8 @@ object LyricsUtils {
                     }
                 }
             }
-            val sortedSyncedLines = syncedLines.sortedBy { it.time }
+            val splitLines = splitMultiLineSyncedLines(syncedLines)
+            val sortedSyncedLines = splitLines.sortedBy { it.time }
             val pairedLines = pairTranslationLines(sortedSyncedLines).map { line ->
 
                 val romanized = when {
@@ -1183,7 +1179,7 @@ object LyricsUtils {
 
             while (wordMatcher.find()) {
                 val wordOffsetMs = wordMatcher.group(1)?.toLongOrNull() ?: 0L
-                // group(2) = duration, group(3) = flags — both unused for display
+                val wordDurMs = wordMatcher.group(2)?.toLongOrNull() ?: 0L
                 val rawText = wordMatcher.group(4) ?: ""
 
                 val startsNew = previousEndsWithSpace || rawText.firstOrNull()?.isWhitespace() == true
@@ -1196,7 +1192,8 @@ object LyricsUtils {
                     SyncedWord(
                         time = (lineStartMs + wordOffsetMs).toInt(),
                         word = wordText,
-                        startsNewWord = startsNew
+                        startsNewWord = startsNew,
+                        endTime = if (wordDurMs > 0) (lineStartMs + wordOffsetMs + wordDurMs).toInt() else null
                     )
                 )
             }
@@ -1299,7 +1296,31 @@ object LyricsUtils {
             val hundredths = (totalMs % 1000) / 10
             val timestamp = "[%02d:%02d.%02d]".format(minutes, seconds, hundredths)
             buildList {
-                add("$timestamp${line.line}")
+                val words = line.words
+                val lineContent = if (!words.isNullOrEmpty()) {
+                    words.mapIndexed { index, word ->
+                        val wTotalMs = word.time
+                        val wMin = wTotalMs / 60000
+                        val wSec = (wTotalMs % 60000) / 1000
+                        val wHun = (wTotalMs % 1000) / 10
+                        val wTag = "<%02d:%02d.%02d>".format(wMin, wSec, wHun)
+                        val prefix = if (index > 0 && word.startsNewWord) " " else ""
+                        "$prefix$wTag${word.word}"
+                    }.joinToString("")
+                } else {
+                    line.line
+                }
+                add("$timestamp$lineContent")
+                if (!line.subPhrases.isNullOrEmpty()) {
+                    line.subPhrases.forEach { sp ->
+                        val spTotalMs = sp.startTime
+                        val spMin = spTotalMs / 60000
+                        val spSec = (spTotalMs % 60000) / 1000
+                        val spHun = (spTotalMs % 1000) / 10
+                        val spTag = "[%02d:%02d.%02d]".format(spMin, spSec, spHun)
+                        add("$spTag{bg}${sp.text}")
+                    }
+                }
                 if (!line.translation.isNullOrBlank()) {
                     line.translation
                         .lines()
@@ -1310,6 +1331,50 @@ object LyricsUtils {
                 }
             }
         }.joinToString("\n")
+    }
+
+    /**
+     * Splits any SyncedLine whose text contains newline breaks into separate
+     * individual SyncedLines with interpolated timestamps so that multiple
+     * lines are never merged together into a single highlighted blob.
+     */
+    fun splitMultiLineSyncedLines(lines: List<SyncedLine>): List<SyncedLine> {
+        val result = mutableListOf<SyncedLine>()
+        for (i in lines.indices) {
+            val line = lines[i]
+            val text = line.line
+            if (!text.contains('\n')) {
+                result.add(line)
+                continue
+            }
+            val subLines = text.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+            if (subLines.size <= 1) {
+                result.add(line.copy(line = subLines.firstOrNull() ?: text))
+                continue
+            }
+            val nextLineTime = lines.getOrNull(i + 1)?.time ?: (line.time + (subLines.size * 3000))
+            val lineDuration = (nextLineTime - line.time).coerceAtLeast(subLines.size * 1000)
+            val subDuration = lineDuration / subLines.size
+
+            subLines.forEachIndexed { subIdx, subText ->
+                val subTime = line.time + (subIdx * subDuration)
+                val subWords = line.words?.filter { w ->
+                    subText.contains(w.word, ignoreCase = true)
+                }?.takeIf { it.isNotEmpty() }
+
+                result.add(
+                    SyncedLine(
+                        time = subTime,
+                        line = subText,
+                        words = subWords,
+                        isBackground = line.isBackground,
+                        agent = line.agent,
+                        subPhrases = if (subIdx == 0) line.subPhrases else null
+                    )
+                )
+            }
+        }
+        return result
     }
 
     /**
