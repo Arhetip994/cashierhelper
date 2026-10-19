@@ -69,9 +69,14 @@ internal object TtmlLyricsParser {
                             )
                         }
                     }.ifEmpty { null }
-                    val bgEndTime = bgLine.words.lastOrNull()?.endTimeMs ?: (bgLine.startTimeMs + 3000)
+                    val actualStart = subWords?.firstOrNull()?.time
+                        ?: bgLine.words.firstOrNull()?.startTimeMs
+                        ?: bgLine.startTimeMs
+                    val bgEndTime = subWords?.lastOrNull()?.let { it.endTime ?: (it.time + 1200) }
+                        ?: bgLine.words.lastOrNull()?.endTimeMs
+                        ?: (actualStart + 3000)
                     com.unshoo.pixelmusic.data.model.SubPhrase(
-                        startTime = bgLine.startTimeMs,
+                        startTime = actualStart,
                         endTime = bgEndTime,
                         text = cleanBgText,
                         words = subWords
@@ -199,9 +204,10 @@ internal object TtmlLyricsParser {
                         val prev = parsedLines.last()
                         val prevEnd = prev.words.lastOrNull()?.endTimeMs ?: (prev.startTimeMs + 8000)
                         if (beginMs in (prev.startTimeMs - 1500)..(prevEnd + 4000)) {
+                            val bgActualStart = words.firstOrNull()?.startTimeMs ?: beginMs
                             val bgParsed = ParsedLine(
                                 text = finalText,
-                                startTimeMs = beginMs,
+                                startTimeMs = bgActualStart,
                                 words = words,
                                 agent = agent,
                                 isBackground = true,
@@ -236,7 +242,7 @@ internal object TtmlLyricsParser {
     private fun parseBackgroundSpan(span: Element, parentStartTimeMs: Int): ParsedLine? {
         val bgBegin = span.getAttribute("begin")
         val bgEnd = span.getAttribute("end")
-        val bgStartTimeMs = parseTimeExpression(bgBegin) ?: parentStartTimeMs
+        val parsedBgBegin = parseTimeExpression(bgBegin)
 
         val spanInfos = mutableListOf<SpanInfo>()
         val childNodes = span.childNodes
@@ -280,10 +286,12 @@ internal object TtmlLyricsParser {
         val rawContent = if (lineText.isEmpty()) getDirectTextContent(span).trim() else lineText
         val finalText = LyricsUtils.cleanLyricBrackets(rawContent)
 
+        val actualStartTime = words.firstOrNull()?.startTimeMs ?: parsedBgBegin ?: parentStartTimeMs
+
         return if (finalText.isNotEmpty()) {
             ParsedLine(
                 text = finalText,
-                startTimeMs = bgStartTimeMs,
+                startTimeMs = actualStartTime,
                 words = words,
                 agent = null,
                 isBackground = true,

@@ -227,6 +227,7 @@ class MusixmatchLyricsProvider @Inject constructor(
                 if (fullLine.isNotEmpty()) {
                     var mainText = fullLine
                     var subPhrases: List<SubPhrase>? = null
+                    var lineWords: List<SyncedWord>? = words.ifEmpty { null }
 
                     if (fullLine.contains("(") && fullLine.contains(")")) {
                         val match = Regex("""\(([^)]+)\)""").find(fullLine)
@@ -234,13 +235,36 @@ class MusixmatchLyricsProvider @Inject constructor(
                             val bg = com.unshoo.pixelmusic.utils.LyricsUtils.cleanLyricBrackets(match.groupValues[1].replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
                             mainText = com.unshoo.pixelmusic.utils.LyricsUtils.cleanLyricBrackets(fullLine.replace(match.value, "").replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
                             if (bg.isNotEmpty()) {
+                                val leadWords = mutableListOf<SyncedWord>()
+                                val backingWords = mutableListOf<SyncedWord>()
+                                var inBracket = false
+                                for (w in words) {
+                                    val rawW = w.word
+                                    val hasOpen = rawW.any { it in "([（【〔《{" }
+                                    val hasClose = rawW.any { it in ")]）】〕》}" }
+                                    if (hasOpen) inBracket = true
+                                    val cleanW = com.unshoo.pixelmusic.utils.LyricsUtils.cleanLyricBrackets(rawW.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
+                                    if (cleanW.isNotEmpty()) {
+                                        val copyW = w.copy(word = cleanW)
+                                        if (inBracket) backingWords.add(copyW) else leadWords.add(copyW)
+                                    }
+                                    if (hasClose) inBracket = false
+                                }
+
+                                val bgStartTime = backingWords.firstOrNull()?.time 
+                                    ?: (if (words.isNotEmpty()) (words.last().time - 500).coerceAtLeast(lineStartMs) else lineStartMs)
+                                val bgEndTime = backingWords.lastOrNull()?.let { it.endTime ?: (it.time + 1200) } ?: lineEndMs
                                 subPhrases = listOf(
                                     SubPhrase(
-                                        startTime = lineStartMs,
-                                        endTime = lineEndMs,
-                                        text = bg
+                                        startTime = bgStartTime,
+                                        endTime = bgEndTime,
+                                        text = bg,
+                                        words = backingWords.ifEmpty { null }
                                     )
                                 )
+                                if (leadWords.isNotEmpty()) {
+                                    lineWords = leadWords
+                                }
                             }
                         }
                     }
@@ -249,7 +273,7 @@ class MusixmatchLyricsProvider @Inject constructor(
                         SyncedLine(
                             time = lineStartMs,
                             line = mainText,
-                            words = words.ifEmpty { null },
+                            words = lineWords,
                             endTime = lineEndMs,
                             subPhrases = subPhrases
                         )

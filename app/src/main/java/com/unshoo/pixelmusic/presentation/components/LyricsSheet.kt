@@ -1700,7 +1700,13 @@ fun SyncedLyricsList(
                         ?: effectiveLines.getOrNull(index + 1)?.time
                         ?: Int.MAX_VALUE
                     val distanceFromCurrent = if (currentLineIndex != -1) {
+                        val isSubphraseActive = line.subPhrases?.any { 
+                            val s = it.startTime.toLong()
+                            val e = maxOf(it.endTime.toLong(), s + 1200L)
+                            position in (s - 200L)..(e + 350L)
+                        } == true
                         when {
+                            isSubphraseActive -> 0
                             // Subphrase paired with preceding lead line: keep both in focus
                             line.isBackground && index > 0 && currentLineIndex == index - 1 -> 0
                             // Lead line paired with following subphrase: keep both in focus
@@ -2238,9 +2244,9 @@ private fun SubPhrasesSection(
             val subStart = subPhrase.startTime.toLong()
             val subEnd = maxOf(subPhrase.endTime.toLong(), subStart + 1200L)
 
-            // Subphrases smoothly appear ONLY when their moment is active
-            val isVisible = isCurrentLine && (position in (subStart - 200L)..(subEnd + 350L))
-            val isActive = isCurrentLine && (position in subStart..subEnd)
+            // Subphrases smoothly appear ONLY when their moment is active, independent of whether main line finished
+            val isVisible = position in (subStart - 200L)..(subEnd + 350L)
+            val isActive = position in subStart..subEnd
 
             AnimatedVisibility(
                 visible = isVisible,

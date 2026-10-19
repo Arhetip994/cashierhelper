@@ -914,16 +914,43 @@ object LyricsUtils {
                             var inBracket = false
                             for (w in words) {
                                 val rawW = w.word
-                                if (rawW.any { it in "([（【〔《{" }) inBracket = true
-                                val cleanW = cleanLyricBrackets(rawW.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
-                                if (cleanW.isNotEmpty()) {
-                                    val copyW = w.copy(word = cleanW)
-                                    if (inBracket) backingWords.add(copyW) else leadWords.add(copyW)
+                                val openIdx = rawW.indexOfAny(charArrayOf('(', '[', '（', '【', '〔', '《', '{'))
+                                val closeIdx = rawW.indexOfAny(charArrayOf(')', ']', '）', '】', '〕', '》', '}'))
+
+                                if (openIdx != -1) {
+                                    val beforeOpen = cleanLyricBrackets(rawW.substring(0, openIdx)).trim()
+                                    val afterOpen = cleanLyricBrackets(rawW.substring(openIdx + 1).replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
+                                    if (beforeOpen.isNotEmpty()) {
+                                        leadWords.add(w.copy(word = beforeOpen))
+                                    }
+                                    inBracket = true
+                                    if (afterOpen.isNotEmpty()) {
+                                        backingWords.add(w.copy(word = afterOpen))
+                                    }
+                                    if (closeIdx > openIdx) {
+                                        inBracket = false
+                                    }
+                                } else if (closeIdx != -1) {
+                                    val beforeClose = cleanLyricBrackets(rawW.substring(0, closeIdx).replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
+                                    val afterClose = cleanLyricBrackets(rawW.substring(closeIdx + 1)).trim()
+                                    if (beforeClose.isNotEmpty()) {
+                                        backingWords.add(w.copy(word = beforeClose))
+                                    }
+                                    inBracket = false
+                                    if (afterClose.isNotEmpty()) {
+                                        leadWords.add(w.copy(word = afterClose))
+                                    }
+                                } else {
+                                    val cleanW = cleanLyricBrackets(rawW.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
+                                    if (cleanW.isNotEmpty()) {
+                                        val copyW = w.copy(word = cleanW)
+                                        if (inBracket) backingWords.add(copyW) else leadWords.add(copyW)
+                                    }
                                 }
-                                if (rawW.any { it in ")]）】〕》}" }) inBracket = false
                             }
                             val cleanBackingText = cleanLyricBrackets(backingText.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
-                            val backingTime = backingWords.firstOrNull()?.time ?: lineTimestamp.toInt()
+                            val backingTime = backingWords.firstOrNull()?.time 
+                                ?: (if (words.isNotEmpty()) (words.last().time - 500).coerceAtLeast(lineTimestamp.toInt()) else lineTimestamp.toInt())
                             val backingEndTime = backingWords.lastOrNull()?.let { it.endTime ?: (it.time + 1200) } ?: (backingTime + 3000)
                             val subPhrase = com.unshoo.pixelmusic.data.model.SubPhrase(
                                 startTime = backingTime,
@@ -986,9 +1013,15 @@ object LyricsUtils {
                         val cleanBackingText = cleanLyricBrackets(rawBackingText.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
 
                         if (leadText.isNotEmpty() && cleanBackingText.isNotEmpty()) {
+                            val openParenIdx = text.indexOfAny(charArrayOf('(', '[', '（', '【', '〔', '《', '{'))
+                            val approxOffset = if (openParenIdx > 0 && text.length > 0) {
+                                val ratio = (openParenIdx.toFloat() / text.length.toFloat()).coerceIn(0.25f, 0.85f)
+                                (3500L * ratio).toInt()
+                            } else 0
+                            val subStart = lineTimestamp.toInt() + approxOffset
                             val subPhrase = com.unshoo.pixelmusic.data.model.SubPhrase(
-                                startTime = lineTimestamp.toInt(),
-                                endTime = lineTimestamp.toInt() + 3000,
+                                startTime = subStart,
+                                endTime = subStart + 3000,
                                 text = cleanBackingText
                             )
                             syncedLines.add(SyncedLine(lineTimestamp.toInt(), leadText, isBackground = false, agent = agent, subPhrases = listOf(subPhrase)))
@@ -1205,20 +1238,71 @@ object LyricsUtils {
 
             var mainLine = cleanLyricBrackets(rawPlainText.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
             var subPhrases: List<com.unshoo.pixelmusic.data.model.SubPhrase>? = null
+            var lineWords: List<SyncedWord>? = words.takeIf { it.isNotEmpty() }
             if (INLINE_BRACKET_PATTERN.containsMatchIn(rawPlainText)) {
                 val matches = INLINE_BRACKET_PATTERN.findAll(rawPlainText).map { it.groupValues[1].trim() }.filter { it.isNotEmpty() }.toList()
                 if (matches.isNotEmpty()) {
                     mainLine = cleanLyricBrackets(INLINE_BRACKET_PATTERN.replace(rawPlainText, " ").replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), " ").replace(Regex("""\s+"""), " ").trim())
+
+                    val leadWords = mutableListOf<SyncedWord>()
+                    val backingWords = mutableListOf<SyncedWord>()
+                    var inBracket = false
+                    for (w in words) {
+                        val rawW = w.word
+                        val openIdx = rawW.indexOfAny(charArrayOf('(', '[', '（', '【', '〔', '《', '{'))
+                        val closeIdx = rawW.indexOfAny(charArrayOf(')', ']', '）', '】', '〕', '》', '}'))
+
+                        if (openIdx != -1) {
+                            val beforeOpen = cleanLyricBrackets(rawW.substring(0, openIdx)).trim()
+                            val afterOpen = cleanLyricBrackets(rawW.substring(openIdx + 1).replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
+                            if (beforeOpen.isNotEmpty()) {
+                                leadWords.add(w.copy(word = beforeOpen))
+                            }
+                            inBracket = true
+                            if (afterOpen.isNotEmpty()) {
+                                backingWords.add(w.copy(word = afterOpen))
+                            }
+                            if (closeIdx > openIdx) {
+                                inBracket = false
+                            }
+                        } else if (closeIdx != -1) {
+                            val beforeClose = cleanLyricBrackets(rawW.substring(0, closeIdx).replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
+                            val afterClose = cleanLyricBrackets(rawW.substring(closeIdx + 1)).trim()
+                            if (beforeClose.isNotEmpty()) {
+                                backingWords.add(w.copy(word = beforeClose))
+                            }
+                            inBracket = false
+                            if (afterClose.isNotEmpty()) {
+                                leadWords.add(w.copy(word = afterClose))
+                            }
+                        } else {
+                            val cleanW = cleanLyricBrackets(rawW.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
+                            if (cleanW.isNotEmpty()) {
+                                val copyW = w.copy(word = cleanW)
+                                if (inBracket) backingWords.add(copyW) else leadWords.add(copyW)
+                            }
+                        }
+                    }
+
                     subPhrases = matches.mapNotNull { bgText ->
                         val cleanBg = cleanLyricBrackets(bgText.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
                         if (cleanBg.isEmpty()) null else {
+                            val bgStart = backingWords.firstOrNull()?.time 
+                                ?: (if (words.isNotEmpty()) (words.last().time - 500).coerceAtLeast(lineStartMs.toInt()) else lineStartMs.toInt())
+                            val bgEnd = backingWords.lastOrNull()?.let { it.endTime ?: (it.time + 1200) } 
+                                ?: (bgStart + 3000)
                             com.unshoo.pixelmusic.data.model.SubPhrase(
-                                startTime = lineStartMs.toInt(),
-                                endTime = (lineStartMs + 3000L).toInt(),
-                                text = cleanBg
+                                startTime = bgStart,
+                                endTime = bgEnd,
+                                text = cleanBg,
+                                words = backingWords.ifEmpty { null }
                             )
                         }
                     }.takeIf { it.isNotEmpty() }
+
+                    if (leadWords.isNotEmpty()) {
+                        lineWords = leadWords
+                    }
                 }
             }
 
@@ -1226,7 +1310,7 @@ object LyricsUtils {
                 SyncedLine(
                     time = lineStartMs.toInt(),
                     line = mainLine,
-                    words = words.takeIf { it.isNotEmpty() },
+                    words = lineWords,
                     subPhrases = subPhrases
                 )
             )
