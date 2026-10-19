@@ -231,4 +231,46 @@
     <string name="lyrics_translation_language_desc">Bahasa untuk karaoke dan terjemahan lirik</string>
     <string name="lyrics_translation_ai_active">✨ Terjemahan puitis via AI (%1$s)</string>
     <string name="lyrics_translation_google_active">Menggunakan Google Terjemahan (untuk AI, masukkan kunci API di Pengaturan → Integrasi AI)</string>
+
+    <!-- Spotify Login -->
+    <string name="spotify_login_title">Masuk ke Spotify</string>
+    <string name="spotify_login_subtitle">Masuk ke Spotify untuk mentransfer daftar putar dan lagu favorit Anda</string>
+    <string name="spotify_manual_sp_dc">Cookie sp_dc (Opsional)</string>
+    <string name="spotify_manual_sp_dc_hint">Tempel nilai cookie sp_dc jika login web tidak selesai</string>
+    <string name="spotify_manual_sp_dc_apply">Terapkan Cookie</string>
+    <string name="spotify_cookie_invalid">Cookie sp_dc tidak valid atau kedaluwarsa</string>
+    <string name="spotify_login_success">Berhasil masuk sebagai %1$s</string>
+    <string name="spotify_tab_cookie">Cookie sp_dc (Cepat)</string>
+    <string name="spotify_tab_oauth">OAuth 2.0 PKCE</string>
+    <string name="spotify_cookie_label">Cookie sp_dc</string>
+    <string name="spotify_cookie_placeholder">AQB... (tempel nilai cookie sp_dc)</string>
+    <string name="spotify_cookie_desc">Metode masuk paling andal tanpa server pihak ketiga</string>
+    <string name="spotify_cookie_submit">Terapkan Cookie dan Masuk</string>
+    <string name="spotify_instruction_title">Panduan: cara mendapatkan cookie sp_dc</string>
+    <string name="spotify_instruction_body">1. Buka open.spotify.com di browser Anda (di PC atau ponsel dalam mode desktop) dan masuk.\n2. Buka Alat Pengembang (F12) atau pengaturan situs.\n3. Buka Aplikasi (Penyimpanan) → Cookie → https://open.spotify.com.\n4. Cari baris bernama sp_dc, salin nilainya dan tempel di atas.</string>
+    <string name="spotify_oauth_desc">Spotify memerlukan aplikasi pengembang terdaftar untuk otorisasi OAuth 2.0 di browser.</string>
+    <string name="spotify_client_id_label">Spotify Client ID Anda</string>
+    <string name="spotify_client_id_placeholder">Contoh: 7a8b9c...</string>
+    <string name="spotify_client_id_hint">URI Pengalihan di aplikasi Spotify: pixelmusic://spotify-callback</string>
+    <string name="spotify_oauth_button">Masuk via Chrome Custom Tabs</string>
+    <string name="spotify_client_id_required">Silakan masukkan Spotify Client ID Anda dari developer.spotify.com terlebih dahulu</string>
+    <string name="spotify_create_client_id">Buat Client ID di developer.spotify.com</string>
+    <string name="spotify_logout_success">Anda telah keluar dari Spotify</string>
+    <string name="spotify_browser_open_error">Tidak dapat membuka browser: %1$s</string>
+    <string name="spotify_auth_launch_error">Gagal meluncurkan otorisasi: %1$s</string>
+    <string name="spotify_activity_error">Tidak dapat mendeteksi Activity</string>
+    <string name="spotify_connected">Spotify terhubung</string>
+    <string name="spotify_session_active">Sesi aktif</string>
+    <string name="spotify_logout">Keluar</string>
+
+    <!-- Spatial Audio & Dolby Atmos -->
+    <string name="spatial_audio_title">Audio Spasial (Spatial Audio)</string>
+    <string name="spatial_audio_enabled">Aktif</string>
+    <string name="spatial_audio_available">Tersedia</string>
+    <string name="spatial_audio_not_supported">Tidak didukung</string>
+    <string name="spatial_audio_desc_available">Audio spasial bawaan Media3 aktif. Aliran suara mempertahankan panning surround multikanal.</string>
+    <string name="spatial_audio_desc_unsupported">Perangkat atau headphone Anda tidak menyatakan dukungan untuk Spatializer sistem Android 13+. Aktifkan Surround Virtualizer di atas untuk perluasan stereo perangkat lunak.</string>
+    <string name="spatial_audio_dolby_atmos">Dolby Atmos / Surround</string>
+    <string name="spatial_audio_dolby_supported">Didukung oleh sistem</string>
+    <string name="spatial_audio_dolby_not_detected">Tidak terdeteksi</string>
 </resources>

@@ -104,14 +104,14 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
 
     fun handlePkceLogin() {
         if (activity == null) {
-            toast("Не удалось определить Activity")
+            toast(context.getString(R.string.spotify_activity_error))
             return
         }
         scope.launch {
             try {
                 spotifyAccountManager.startPkceAuth(activity, clientIdText.ifBlank { null })
             } catch (e: Exception) {
-                toast("Ошибка запуска авторизации: ${e.message}")
+                toast(context.getString(R.string.spotify_auth_launch_error, e.message.orEmpty()))
             }
         }
     }
@@ -223,11 +223,11 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = profile?.username ?: "Spotify подключен",
+                                text = profile?.username ?: stringResource(R.string.spotify_connected),
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                             )
                             Text(
-                                text = "Сессия активна",
+                                text = stringResource(R.string.spotify_session_active),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -236,11 +236,11 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
                             onClick = {
                                 scope.launch {
                                     spotifyAccountManager.logout()
-                                    toast("Вы вышли из Spotify")
+                                    toast(context.getString(R.string.spotify_logout_success))
                                 }
                             }
                         ) {
-                            Text("Выйти")
+                            Text(stringResource(R.string.spotify_logout))
                         }
                     }
                 }
@@ -263,7 +263,7 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = "Cookie sp_dc (Быстро)",
+                        text = stringResource(R.string.spotify_tab_cookie),
                         style = MaterialTheme.typography.titleSmall.copy(
                             fontWeight = if (selectedLoginMode == 0) FontWeight.Bold else FontWeight.Normal,
                             color = if (selectedLoginMode == 0) Color.Black else MaterialTheme.colorScheme.onSurface
@@ -280,7 +280,7 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = "OAuth 2.0 PKCE",
+                        text = stringResource(R.string.spotify_tab_oauth),
                         style = MaterialTheme.typography.titleSmall.copy(
                             fontWeight = if (selectedLoginMode == 1) FontWeight.Bold else FontWeight.Normal,
                             color = if (selectedLoginMode == 1) Color.Black else MaterialTheme.colorScheme.onSurface
@@ -300,9 +300,9 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
                     OutlinedTextField(
                         value = manualSpDc,
                         onValueChange = { manualSpDc = it.trim() },
-                        label = { Text("Cookie sp_dc") },
-                        placeholder = { Text("AQB... (вставьте значение cookie sp_dc)") },
-                        supportingText = { Text("Самый надежный способ авторизации без сторонних серверов") },
+                        label = { Text(stringResource(R.string.spotify_cookie_label)) },
+                        placeholder = { Text(stringResource(R.string.spotify_cookie_placeholder)) },
+                        supportingText = { Text(stringResource(R.string.spotify_cookie_desc)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         modifier = Modifier.fillMaxWidth()
@@ -324,7 +324,7 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black)
                             Spacer(Modifier.width(8.dp))
                         }
-                        Text("Применить cookie и войти", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.spotify_cookie_submit), fontWeight = FontWeight.Bold)
                     }
 
                     // Instruction Card
@@ -338,14 +338,11 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "Инструкция: как получить sp_dc",
+                                text = stringResource(R.string.spotify_instruction_title),
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                text = "1. Откройте сайт open.spotify.com в браузере (на телефоне в режиме ПК или на компьютере) и войдите в свой Spotify.\n" +
-                                        "2. Откройте Инструменты разработчика (F12) или настройки сайта.\n" +
-                                        "3. Перейдите во вкладку Application (Хранилище) → Cookies → https://open.spotify.com.\n" +
-                                        "4. Найдите строку с именем sp_dc, скопируйте ее значение и вставьте в поле выше.",
+                                text = stringResource(R.string.spotify_instruction_body),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -359,7 +356,7 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Spotify требует зарегистрированное приложение разработчика для авторизации через OAuth 2.0 в браузере.",
+                        text = stringResource(R.string.spotify_oauth_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -370,9 +367,9 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
                             clientIdText = it.trim()
                             scope.launch { spotifyAccountManager.saveCustomClientId(it.ifBlank { null }) }
                         },
-                        label = { Text("Ваш Spotify Client ID") },
-                        placeholder = { Text("Например: 7a8b9c...") },
-                        supportingText = { Text("Redirect URI в приложении Spotify: pixelmusic://spotify-callback") },
+                        label = { Text(stringResource(R.string.spotify_client_id_label)) },
+                        placeholder = { Text(stringResource(R.string.spotify_client_id_placeholder)) },
+                        supportingText = { Text(stringResource(R.string.spotify_client_id_hint)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -380,7 +377,7 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
                     Button(
                         onClick = {
                             if (clientIdText.isBlank()) {
-                                toast("Сначала введите свой Spotify Client ID из developer.spotify.com")
+                                toast(context.getString(R.string.spotify_client_id_required))
                             } else {
                                 handlePkceLogin()
                             }
@@ -396,7 +393,7 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
                     ) {
                         Icon(Icons.Rounded.OpenInNew, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Войти через Chrome Custom Tabs", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.spotify_oauth_button), fontWeight = FontWeight.Bold)
                     }
 
                     OutlinedButton(
@@ -408,13 +405,13 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
                                 )
                                 context.startActivity(intent)
                             } catch (e: Exception) {
-                                toast("Не удалось открыть браузер: ${e.message}")
+                                toast(context.getString(R.string.spotify_browser_open_error, e.message.orEmpty()))
                             }
                         },
                         shape = RoundedCornerShape(20.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Создать Client ID на developer.spotify.com")
+                        Text(stringResource(R.string.spotify_create_client_id))
                     }
                 }
             }

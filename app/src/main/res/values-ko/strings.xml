@@ -231,4 +231,46 @@
     <string name="lyrics_translation_language_desc">노래방 및 가사 번역 대상 언어</string>
     <string name="lyrics_translation_ai_active">✨ AI 시적 번역 적용 중 (%1$s)</string>
     <string name="lyrics_translation_google_active">Google 번역 사용 중 (AI 사용 시 설정 → AI 연동에서 API 키를 입력하세요)</string>
+
+    <!-- Spotify Login -->
+    <string name="spotify_login_title">Spotify 로그인</string>
+    <string name="spotify_login_subtitle">Spotify에 로그인하여 재생목록과 좋아요 표시한 곡을 가져오세요</string>
+    <string name="spotify_manual_sp_dc">sp_dc 쿠키 (선택 사항)</string>
+    <string name="spotify_manual_sp_dc_hint">웹 로그인이 완료되지 않는 경우 sp_dc 쿠키 값을 붙여넣으세요</string>
+    <string name="spotify_manual_sp_dc_apply">쿠키 적용</string>
+    <string name="spotify_cookie_invalid">유효하지 않거나 만료된 sp_dc 쿠키입니다</string>
+    <string name="spotify_login_success">%1$s(으)로 로그인됨</string>
+    <string name="spotify_tab_cookie">Cookie sp_dc (빠름)</string>
+    <string name="spotify_tab_oauth">OAuth 2.0 PKCE</string>
+    <string name="spotify_cookie_label">Cookie sp_dc</string>
+    <string name="spotify_cookie_placeholder">AQB... (sp_dc 쿠키 값 붙여넣기)</string>
+    <string name="spotify_cookie_desc">타사 서버 없이 가장 안정적인 로그인 방식</string>
+    <string name="spotify_cookie_submit">쿠키 적용 및 로그인</string>
+    <string name="spotify_instruction_title">sp_dc 쿠키 가져오기 가이드</string>
+    <string name="spotify_instruction_body">1. 브라우저(PC 또는 모바일 데스크톱 모드)에서 open.spotify.com을 열고 로그인합니다.\n2. 개발자 도구(F12) 또는 사이트 설정을 엽니다.\n3. 애플리케이션(저장공간) → 쿠키 → https://open.spotify.com으로 이동합니다.\n4. sp_dc 행을 찾아 값을 복사한 후 위 입력란에 붙여넣습니다.</string>
+    <string name="spotify_oauth_desc">Spotify 브라우저 OAuth 2.0 인증에는 등록된 개발자 애플리케이션이 필요합니다.</string>
+    <string name="spotify_client_id_label">사용자 Spotify Client ID</string>
+    <string name="spotify_client_id_placeholder">예: 7a8b9c...</string>
+    <string name="spotify_client_id_hint">Spotify 앱 리디렉션 URI: pixelmusic://spotify-callback</string>
+    <string name="spotify_oauth_button">Chrome Custom Tabs로 로그인</string>
+    <string name="spotify_client_id_required">developer.spotify.com에서 발급받은 Spotify Client ID를 먼저 입력하세요</string>
+    <string name="spotify_create_client_id">developer.spotify.com에서 Client ID 만들기</string>
+    <string name="spotify_logout_success">Spotify에서 로그아웃되었습니다</string>
+    <string name="spotify_browser_open_error">브라우저를 열 수 없습니다: %1$s</string>
+    <string name="spotify_auth_launch_error">인증 실행 오류: %1$s</string>
+    <string name="spotify_activity_error">Activity를 확인할 수 없습니다</string>
+    <string name="spotify_connected">Spotify 연결됨</string>
+    <string name="spotify_session_active">세션 활성</string>
+    <string name="spotify_logout">로그아웃</string>
+
+    <!-- Spatial Audio & Dolby Atmos -->
+    <string name="spatial_audio_title">공간 음향 (Spatial Audio)</string>
+    <string name="spatial_audio_enabled">켜짐</string>
+    <string name="spatial_audio_available">사용 가능</string>
+    <string name="spatial_audio_not_supported">지원 안 됨</string>
+    <string name="spatial_audio_desc_available">Media3 네이티브 공간 음향이 활성화되어 다채널 서라운드 패닝을 유지합니다.</string>
+    <string name="spatial_audio_desc_unsupported">기기 또는 연결된 헤드폰이 Android 13+ 시스템 Spatializer를 지원하지 않습니다. 소프트웨어 입체 음향 확장을 위해 위의 서라운드 가상화기를 켜세요.</string>
+    <string name="spatial_audio_dolby_atmos">돌비 애트모스 / 서라운드</string>
+    <string name="spatial_audio_dolby_supported">시스템에서 지원됨</string>
+    <string name="spatial_audio_dolby_not_detected">감지되지 않음</string>
 </resources>

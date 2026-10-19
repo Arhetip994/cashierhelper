@@ -344,4 +344,39 @@
     <string name="import_tracks_count">%1$d треков</string>
     <string name="lyrics_performance_mode_title">Режим высокой производительности</string>
     <string name="lyrics_performance_mode_subtitle">Отключает размытие фона, ограничивает синхронизацию 30 FPS и оптимизирует пословную отрисовку для слабых устройств</string>
+
+    <!-- Spotify Login -->
+    <string name="spotify_tab_cookie">Cookie sp_dc (Быстро)</string>
+    <string name="spotify_tab_oauth">OAuth 2.0 PKCE</string>
+    <string name="spotify_cookie_label">Cookie sp_dc</string>
+    <string name="spotify_cookie_placeholder">AQB... (вставьте значение cookie sp_dc)</string>
+    <string name="spotify_cookie_desc">Самый надежный способ авторизации без сторонних серверов</string>
+    <string name="spotify_cookie_submit">Применить cookie и войти</string>
+    <string name="spotify_instruction_title">Инструкция: как получить sp_dc</string>
+    <string name="spotify_instruction_body">1. Откройте сайт open.spotify.com в браузере (на телефоне в режиме ПК или на компьютере) и войдите в свой Spotify.\n2. Откройте Инструменты разработчика (F12) или настройки сайта.\n3. Перейдите во вкладку Application (Хранилище) → Cookies → https://open.spotify.com.\n4. Найдите строку с именем sp_dc, скопируйте ее значение и вставьте в поле выше.</string>
+    <string name="spotify_oauth_desc">Spotify требует зарегистрированное приложение разработчика для авторизации через OAuth 2.0 в браузере.</string>
+    <string name="spotify_client_id_label">Ваш Spotify Client ID</string>
+    <string name="spotify_client_id_placeholder">Например: 7a8b9c...</string>
+    <string name="spotify_client_id_hint">Redirect URI в приложении Spotify: pixelmusic://spotify-callback</string>
+    <string name="spotify_oauth_button">Войти через Chrome Custom Tabs</string>
+    <string name="spotify_client_id_required">Сначала введите свой Spotify Client ID из developer.spotify.com</string>
+    <string name="spotify_create_client_id">Создать Client ID на developer.spotify.com</string>
+    <string name="spotify_logout_success">Вы вышли из Spotify</string>
+    <string name="spotify_browser_open_error">Не удалось открыть браузер: %1$s</string>
+    <string name="spotify_auth_launch_error">Ошибка запуска авторизации: %1$s</string>
+    <string name="spotify_activity_error">Не удалось определить Activity</string>
+    <string name="spotify_connected">Spotify подключен</string>
+    <string name="spotify_session_active">Сессия активна</string>
+    <string name="spotify_logout">Выйти</string>
+
+    <!-- Spatial Audio & Dolby Atmos -->
+    <string name="spatial_audio_title">Пространственное аудио (Spatial Audio)</string>
+    <string name="spatial_audio_enabled">Включено</string>
+    <string name="spatial_audio_available">Доступно</string>
+    <string name="spatial_audio_not_supported">Не поддерживается</string>
+    <string name="spatial_audio_desc_available">Нативное пространственное аудио Media3 активно. Звуковые потоки направляются с сохранением многоканальной панорамы.</string>
+    <string name="spatial_audio_desc_unsupported">Ваше устройство или подключенные наушники не заявляют поддержку системного Spatializer Android 13+. Включите Surround Virtualizer выше для программного расширения стереобазы.</string>
+    <string name="spatial_audio_dolby_atmos">Dolby Atmos / Surround</string>
+    <string name="spatial_audio_dolby_supported">Поддерживается системой</string>
+    <string name="spatial_audio_dolby_not_detected">Не обнаружен</string>
 </resources>

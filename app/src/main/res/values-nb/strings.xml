@@ -231,4 +231,46 @@
     <string name="lyrics_translation_language_desc">Språk for karaoke og oversettelse av sangtekster</string>
     <string name="lyrics_translation_ai_active">✨ Poetisk oversettelse via AI (%1$s)</string>
     <string name="lyrics_translation_google_active">Bruker Google Translate (for AI, angi API-nøkkel i Innstillinger → AI-integrasjon)</string>
+
+    <!-- Spotify Login -->
+    <string name="spotify_login_title">Logg inn på Spotify</string>
+    <string name="spotify_login_subtitle">Logg inn på Spotify for å importere spillelister og favorittsanger</string>
+    <string name="spotify_manual_sp_dc">sp_dc-informasjonskapsel (Valgfritt)</string>
+    <string name="spotify_manual_sp_dc_hint">Lim inn verdien av sp_dc hvis nettinnloggingen ikke fullføres</string>
+    <string name="spotify_manual_sp_dc_apply">Bruk informasjonskapsel</string>
+    <string name="spotify_cookie_invalid">Ugyldig eller utløpt sp_dc-informasjonskapsel</string>
+    <string name="spotify_login_success">Logget inn som %1$s</string>
+    <string name="spotify_tab_cookie">Cookie sp_dc (Rask)</string>
+    <string name="spotify_tab_oauth">OAuth 2.0 PKCE</string>
+    <string name="spotify_cookie_label">Cookie sp_dc</string>
+    <string name="spotify_cookie_placeholder">AQB... (lim inn sp_dc-verdi)</string>
+    <string name="spotify_cookie_desc">Den mest pålitelige innloggingsmetoden uten tredjepartsservere</string>
+    <string name="spotify_cookie_submit">Bruk informasjonskapsel og logg inn</string>
+    <string name="spotify_instruction_title">Veiledning: slik henter du sp_dc</string>
+    <string name="spotify_instruction_body">1. Åpne open.spotify.com i nettleseren (på PC eller mobil i skrivebordsmodus) og logg inn.\n2. Åpne utviklerverktøy (F12) eller nettstedinnstillinger.\n3. Gå til Application (Lagring) → Cookies → https://open.spotify.com.\n4. Finn raden sp_dc, kopier verdien og lim den inn ovenfor.</string>
+    <string name="spotify_oauth_desc">Spotify krever en registrert utviklerapplikasjon for OAuth 2.0-autorisasjon i nettleseren.</string>
+    <string name="spotify_client_id_label">Din Spotify Client ID</string>
+    <string name="spotify_client_id_placeholder">F.eks. 7a8b9c...</string>
+    <string name="spotify_client_id_hint">Omdirigerings-URI i Spotify-appen: pixelmusic://spotify-callback</string>
+    <string name="spotify_oauth_button">Logg inn via Chrome Custom Tabs</string>
+    <string name="spotify_client_id_required">Vennligst skriv inn din Spotify Client ID fra developer.spotify.com først</string>
+    <string name="spotify_create_client_id">Opprett Client ID på developer.spotify.com</string>
+    <string name="spotify_logout_success">Du er logget ut av Spotify</string>
+    <string name="spotify_browser_open_error">Kunne ikke åpne nettleseren: %1$s</string>
+    <string name="spotify_auth_launch_error">Feil ved start av autorisasjon: %1$s</string>
+    <string name="spotify_activity_error">Kunne ikke finne Activity</string>
+    <string name="spotify_connected">Spotify tilkoblet</string>
+    <string name="spotify_session_active">Aktiv økt</string>
+    <string name="spotify_logout">Logg ut</string>
+
+    <!-- Spatial Audio & Dolby Atmos -->
+    <string name="spatial_audio_title">Romlig lyd (Spatial Audio)</string>
+    <string name="spatial_audio_enabled">På</string>
+    <string name="spatial_audio_available">Tilgjengelig</string>
+    <string name="spatial_audio_not_supported">Støttes ikke</string>
+    <string name="spatial_audio_desc_available">Innebygd Media3 romlig lyd er aktiv. Lydstrømmer beholder flerkanals surround-panorering.</string>
+    <string name="spatial_audio_desc_unsupported">Enheten eller hodetelefonene dine støtter ikke Android 13+ Spatializer. Aktiver Surround Virtualizer ovenfor for programvarebasert stereoutvidelse.</string>
+    <string name="spatial_audio_dolby_atmos">Dolby Atmos / Surround</string>
+    <string name="spatial_audio_dolby_supported">Støttes av systemet</string>
+    <string name="spatial_audio_dolby_not_detected">Ikke oppdaget</string>
 </resources>

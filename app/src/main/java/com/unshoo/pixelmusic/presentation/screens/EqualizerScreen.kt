@@ -87,6 +87,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign // Added
 import androidx.compose.foundation.horizontalScroll
@@ -1884,7 +1885,7 @@ private fun SpatialAudioDolbyCard(
                         modifier = Modifier.size(24.dp)
                     )
                     Text(
-                        text = "Пространственное аудио (Spatial Audio)",
+                        text = stringResource(R.string.spatial_audio_title),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                     )
                 }
@@ -1895,9 +1896,9 @@ private fun SpatialAudioDolbyCard(
                             else MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Text(
-                        text = if (isSpatialAudioAvailable && isSpatialAudioEnabled) "Включено"
-                               else if (isSpatialAudioAvailable) "Доступно"
-                               else "Не поддерживается",
+                        text = if (isSpatialAudioAvailable && isSpatialAudioEnabled) stringResource(R.string.spatial_audio_enabled)
+                               else if (isSpatialAudioAvailable) stringResource(R.string.spatial_audio_available)
+                               else stringResource(R.string.spatial_audio_not_supported),
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         color = if (isSpatialAudioAvailable && isSpatialAudioEnabled) Color(0xFF1DB954)
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1908,9 +1909,9 @@ private fun SpatialAudioDolbyCard(
 
             Text(
                 text = if (isSpatialAudioAvailable)
-                    "Нативное пространственное аудио Media3 активно. Звуковые потоки направляются с сохранением многоканальной панорамы."
+                    stringResource(R.string.spatial_audio_desc_available)
                 else
-                    "Ваше устройство или подключенные наушники не заявляют поддержку системного Spatializer Android 13+. Включите Surround Virtualizer выше для программного расширения стереобазы.",
+                    stringResource(R.string.spatial_audio_desc_unsupported),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1921,7 +1922,7 @@ private fun SpatialAudioDolbyCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Dolby Atmos / Surround",
+                    text = stringResource(R.string.spatial_audio_dolby_atmos),
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
                 )
                 Surface(
@@ -1930,7 +1931,7 @@ private fun SpatialAudioDolbyCard(
                             else MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Text(
-                        text = if (isDolbyAtmosSupported) "Поддерживается системой" else "Не обнаружен",
+                        text = if (isDolbyAtmosSupported) stringResource(R.string.spatial_audio_dolby_supported) else stringResource(R.string.spatial_audio_dolby_not_detected),
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         color = if (isDolbyAtmosSupported) Color(0xFF1DB954) else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)

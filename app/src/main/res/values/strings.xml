@@ -347,4 +347,39 @@
     <string name="import_tracks_count">%1$d tracks</string>
     <string name="lyrics_performance_mode_title">High Performance Mode</string>
     <string name="lyrics_performance_mode_subtitle">Disables background blur, caps lyrics sync at 30 FPS, and optimizes rendering for low-end devices</string>
+
+    <!-- Spotify Login -->
+    <string name="spotify_tab_cookie">Cookie sp_dc (Fast)</string>
+    <string name="spotify_tab_oauth">OAuth 2.0 PKCE</string>
+    <string name="spotify_cookie_label">Cookie sp_dc</string>
+    <string name="spotify_cookie_placeholder">AQB... (paste sp_dc cookie value)</string>
+    <string name="spotify_cookie_desc">The most reliable sign-in method without third-party servers</string>
+    <string name="spotify_cookie_submit">Apply Cookie and Sign In</string>
+    <string name="spotify_instruction_title">How to get sp_dc cookie</string>
+    <string name="spotify_instruction_body">1. Open open.spotify.com in your browser (on PC or phone in desktop mode) and log in to Spotify.\n2. Open Developer Tools (F12) or browser site settings.\n3. Navigate to Application (Storage) → Cookies → https://open.spotify.com.\n4. Find the row named sp_dc, copy its value, and paste it into the field above.</string>
+    <string name="spotify_oauth_desc">Spotify requires a registered developer application for browser OAuth 2.0 authorization.</string>
+    <string name="spotify_client_id_label">Your Spotify Client ID</string>
+    <string name="spotify_client_id_placeholder">E.g., 7a8b9c...</string>
+    <string name="spotify_client_id_hint">Redirect URI in Spotify app: pixelmusic://spotify-callback</string>
+    <string name="spotify_oauth_button">Sign in via Chrome Custom Tabs</string>
+    <string name="spotify_client_id_required">Please enter your Spotify Client ID from developer.spotify.com first</string>
+    <string name="spotify_create_client_id">Create Client ID on developer.spotify.com</string>
+    <string name="spotify_logout_success">You have logged out of Spotify</string>
+    <string name="spotify_browser_open_error">Could not open browser: %1$s</string>
+    <string name="spotify_auth_launch_error">Authorization launch error: %1$s</string>
+    <string name="spotify_activity_error">Could not determine Activity</string>
+    <string name="spotify_connected">Spotify connected</string>
+    <string name="spotify_session_active">Session active</string>
+    <string name="spotify_logout">Log out</string>
+
+    <!-- Spatial Audio & Dolby Atmos -->
+    <string name="spatial_audio_title">Spatial Audio</string>
+    <string name="spatial_audio_enabled">Enabled</string>
+    <string name="spatial_audio_available">Available</string>
+    <string name="spatial_audio_not_supported">Not supported</string>
+    <string name="spatial_audio_desc_available">Native Media3 spatial audio is active. Audio streams maintain multichannel surround panning.</string>
+    <string name="spatial_audio_desc_unsupported">Your device or connected headphones do not report support for Android 13+ system Spatializer. Enable Surround Virtualizer above for software stereo widening.</string>
+    <string name="spatial_audio_dolby_atmos">Dolby Atmos / Surround</string>
+    <string name="spatial_audio_dolby_supported">Supported by system</string>
+    <string name="spatial_audio_dolby_not_detected">Not detected</string>
 </resources>

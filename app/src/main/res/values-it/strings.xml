@@ -226,4 +226,46 @@
     <string name="lyrics_translation_language_desc">Lingua per karaoke e traduzione dei testi</string>
     <string name="lyrics_translation_ai_active">✨ Traduzione poetica con IA (%1$s)</string>
     <string name="lyrics_translation_google_active">Uso di Google Traduttore (per IA inserisci la chiave API in Impostazioni → Integrazione IA)</string>
+
+    <!-- Spotify Login -->
+    <string name="spotify_login_title">Accedi a Spotify</string>
+    <string name="spotify_login_subtitle">Accedi a Spotify per importare le tue playlist e i brani preferiti</string>
+    <string name="spotify_manual_sp_dc">Cookie sp_dc (Facoltativo)</string>
+    <string name="spotify_manual_sp_dc_hint">Incolla il valore del cookie sp_dc se l\'accesso web non termina</string>
+    <string name="spotify_manual_sp_dc_apply">Applica cookie</string>
+    <string name="spotify_cookie_invalid">Cookie sp_dc non valido o scaduto</string>
+    <string name="spotify_login_success">Accesso eseguito come %1$s</string>
+    <string name="spotify_tab_cookie">Cookie sp_dc (Veloce)</string>
+    <string name="spotify_tab_oauth">OAuth 2.0 PKCE</string>
+    <string name="spotify_cookie_label">Cookie sp_dc</string>
+    <string name="spotify_cookie_placeholder">AQB... (incolla il valore del cookie sp_dc)</string>
+    <string name="spotify_cookie_desc">Il metodo di accesso più affidabile senza server di terze parti</string>
+    <string name="spotify_cookie_submit">Applica cookie e accedi</string>
+    <string name="spotify_instruction_title">Istruzioni: come ottenere il cookie sp_dc</string>
+    <string name="spotify_instruction_body">1. Apri open.spotify.com nel browser (su PC o smartphone in modalità desktop) ed effettua l\'accesso.\n2. Apri gli Strumenti per sviluppatori (F12) o le impostazioni del sito.\n3. Vai su Applicazione (Archiviazione) → Cookie → https://open.spotify.com.\n4. Trova la riga sp_dc, copia il suo valore e incollalo sopra.</string>
+    <string name="spotify_oauth_desc">Spotify richiede un\'applicazione sviluppatore registrata per l\'autorizzazione OAuth 2.0 nel browser.</string>
+    <string name="spotify_client_id_label">Il tuo Spotify Client ID</string>
+    <string name="spotify_client_id_placeholder">Es.: 7a8b9c...</string>
+    <string name="spotify_client_id_hint">URI di reindirizzamento nell\'app Spotify: pixelmusic://spotify-callback</string>
+    <string name="spotify_oauth_button">Accedi tramite Chrome Custom Tabs</string>
+    <string name="spotify_client_id_required">Inserisci prima il tuo Spotify Client ID da developer.spotify.com</string>
+    <string name="spotify_create_client_id">Crea Client ID su developer.spotify.com</string>
+    <string name="spotify_logout_success">Disconnesso da Spotify</string>
+    <string name="spotify_browser_open_error">Impossibile aprire il browser: %1$s</string>
+    <string name="spotify_auth_launch_error">Errore di avvio autorizzazione: %1$s</string>
+    <string name="spotify_activity_error">Impossibile determinare l\'Activity</string>
+    <string name="spotify_connected">Spotify connesso</string>
+    <string name="spotify_session_active">Sessione attiva</string>
+    <string name="spotify_logout">Esci</string>
+
+    <!-- Spatial Audio & Dolby Atmos -->
+    <string name="spatial_audio_title">Audio spaziale (Spatial Audio)</string>
+    <string name="spatial_audio_enabled">Attivato</string>
+    <string name="spatial_audio_available">Disponibile</string>
+    <string name="spatial_audio_not_supported">Non supportato</string>
+    <string name="spatial_audio_desc_available">L\'audio spaziale nativo Media3 è attivo. I flussi audio mantengono la panoramica surround multicanale.</string>
+    <string name="spatial_audio_desc_unsupported">Il tuo dispositivo o le cuffie collegate non dichiarano il supporto per lo Spatializer di Android 13+. Attiva Surround Virtualizer sopra per l\'espansione stereo software.</string>
+    <string name="spatial_audio_dolby_atmos">Dolby Atmos / Surround</string>
+    <string name="spatial_audio_dolby_supported">Supportato dal sistema</string>
+    <string name="spatial_audio_dolby_not_detected">Non rilevato</string>
 </resources>

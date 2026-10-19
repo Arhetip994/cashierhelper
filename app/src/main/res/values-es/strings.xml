@@ -190,4 +190,46 @@
     <string name="import_link_label">Enlace</string>
     <string name="import_file_error">Error al leer el archivo</string>
     <string name="import_finished_toast">¡Importación completada!</string>
+
+    <!-- Spotify Login -->
+    <string name="spotify_login_title">Iniciar sesión en Spotify</string>
+    <string name="spotify_login_subtitle">Inicia sesión en Spotify para transferir tus listas y pistas favoritas</string>
+    <string name="spotify_manual_sp_dc">Cookie sp_dc (Opcional)</string>
+    <string name="spotify_manual_sp_dc_hint">Pega el valor de la cookie sp_dc si el inicio de sesión web no finaliza</string>
+    <string name="spotify_manual_sp_dc_apply">Aplicar cookie</string>
+    <string name="spotify_cookie_invalid">Cookie sp_dc no válida o caducada</string>
+    <string name="spotify_login_success">Sesión iniciada como %1$s</string>
+    <string name="spotify_tab_cookie">Cookie sp_dc (Rápido)</string>
+    <string name="spotify_tab_oauth">OAuth 2.0 PKCE</string>
+    <string name="spotify_cookie_label">Cookie sp_dc</string>
+    <string name="spotify_cookie_placeholder">AQB... (pega el valor de la cookie sp_dc)</string>
+    <string name="spotify_cookie_desc">El método de inicio de sesión más fiable sin servidores de terceros</string>
+    <string name="spotify_cookie_submit">Aplicar cookie e iniciar sesión</string>
+    <string name="spotify_instruction_title">Instrucciones: cómo obtener la cookie sp_dc</string>
+    <string name="spotify_instruction_body">1. Abre open.spotify.com en tu navegador (en PC o móvil en modo escritorio) e inicia sesión.\n2. Abre las herramientas para desarrolladores (F12) o los ajustes del sitio.\n3. Ve a Aplicación (Almacenamiento) → Cookies → https://open.spotify.com.\n4. Busca la fila sp_dc, copia su valor y pégalo arriba.</string>
+    <string name="spotify_oauth_desc">Spotify requiere una aplicación de desarrollador registrada para la autorización OAuth 2.0 en el navegador.</string>
+    <string name="spotify_client_id_label">Tu Client ID de Spotify</string>
+    <string name="spotify_client_id_placeholder">Ejemplo: 7a8b9c...</string>
+    <string name="spotify_client_id_hint">Redirect URI en la app de Spotify: pixelmusic://spotify-callback</string>
+    <string name="spotify_oauth_button">Iniciar sesión con Chrome Custom Tabs</string>
+    <string name="spotify_client_id_required">Introduce primero tu Client ID de Spotify de developer.spotify.com</string>
+    <string name="spotify_create_client_id">Crear Client ID en developer.spotify.com</string>
+    <string name="spotify_logout_success">Has cerrado sesión en Spotify</string>
+    <string name="spotify_browser_open_error">No se pudo abrir el navegador: %1$s</string>
+    <string name="spotify_auth_launch_error">Error al iniciar la autorización: %1$s</string>
+    <string name="spotify_activity_error">No se pudo determinar la Activity</string>
+    <string name="spotify_connected">Spotify conectado</string>
+    <string name="spotify_session_active">Sesión activa</string>
+    <string name="spotify_logout">Cerrar sesión</string>
+
+    <!-- Spatial Audio & Dolby Atmos -->
+    <string name="spatial_audio_title">Audio espacial (Spatial Audio)</string>
+    <string name="spatial_audio_enabled">Activado</string>
+    <string name="spatial_audio_available">Disponible</string>
+    <string name="spatial_audio_not_supported">No compatible</string>
+    <string name="spatial_audio_desc_available">El audio espacial nativo de Media3 está activo. Los flujos de sonido mantienen la panorámica envolvente multicanal.</string>
+    <string name="spatial_audio_desc_unsupported">Tu dispositivo o auriculares conectados no declaran compatibilidad con el Spatializer de Android 13+. Activa Surround Virtualizer arriba para ampliar el estéreo por software.</string>
+    <string name="spatial_audio_dolby_atmos">Dolby Atmos / Surround</string>
+    <string name="spatial_audio_dolby_supported">Compatible con el sistema</string>
+    <string name="spatial_audio_dolby_not_detected">No detectado</string>
 </resources>

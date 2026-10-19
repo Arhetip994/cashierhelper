@@ -274,4 +274,46 @@
     <string name="import_link_label">链接</string>
     <string name="import_file_error">读取文件失败</string>
     <string name="import_finished_toast">导入完成！</string>
+
+    <!-- Spotify Login -->
+    <string name="spotify_login_title">登录 Spotify</string>
+    <string name="spotify_login_subtitle">登录 Spotify 以导入您的歌单和收藏歌曲</string>
+    <string name="spotify_manual_sp_dc">sp_dc Cookie（可选）</string>
+    <string name="spotify_manual_sp_dc_hint">若网页登录未完成，请粘贴您的 sp_dc cookie 值</string>
+    <string name="spotify_manual_sp_dc_apply">应用 Cookie</string>
+    <string name="spotify_cookie_invalid">sp_dc cookie 无效或已过期</string>
+    <string name="spotify_login_success">已成功登录：%1$s</string>
+    <string name="spotify_tab_cookie">Cookie sp_dc（快捷）</string>
+    <string name="spotify_tab_oauth">OAuth 2.0 PKCE</string>
+    <string name="spotify_cookie_label">Cookie sp_dc</string>
+    <string name="spotify_cookie_placeholder">AQB...（粘贴 sp_dc cookie 内容）</string>
+    <string name="spotify_cookie_desc">无需第三方服务器的最稳定登录方式</string>
+    <string name="spotify_cookie_submit">应用 Cookie 并登录</string>
+    <string name="spotify_instruction_title">获取 sp_dc cookie 教程</string>
+    <string name="spotify_instruction_body">1. 在浏览器（电脑或手机桌面版模式）中打开 open.spotify.com 并登录账号。\n2. 打开开发者工具（F12）或网站设置。\n3. 进入 Application（存储）→ Cookies → https://open.spotify.com。\n4. 找到名为 sp_dc 的行，复制其值并粘贴至上方输入框。</string>
+    <string name="spotify_oauth_desc">Spotify 浏览器 OAuth 2.0 授权需要已注册的开发者应用。</string>
+    <string name="spotify_client_id_label">您的 Spotify Client ID</string>
+    <string name="spotify_client_id_placeholder">例如：7a8b9c...</string>
+    <string name="spotify_client_id_hint">Spotify 应用的重定向 URI：pixelmusic://spotify-callback</string>
+    <string name="spotify_oauth_button">通过 Chrome Custom Tabs 登录</string>
+    <string name="spotify_client_id_required">请先输入来自 developer.spotify.com 的 Spotify Client ID</string>
+    <string name="spotify_create_client_id">在 developer.spotify.com 创建 Client ID</string>
+    <string name="spotify_logout_success">已退出 Spotify 登录</string>
+    <string name="spotify_browser_open_error">无法打开浏览器：%1$s</string>
+    <string name="spotify_auth_launch_error">启动授权失败：%1$s</string>
+    <string name="spotify_activity_error">无法获取 Activity</string>
+    <string name="spotify_connected">Spotify 已连接</string>
+    <string name="spotify_session_active">会话有效</string>
+    <string name="spotify_logout">退出登录</string>
+
+    <!-- Spatial Audio & Dolby Atmos -->
+    <string name="spatial_audio_title">空间音频 (Spatial Audio)</string>
+    <string name="spatial_audio_enabled">已开启</string>
+    <string name="spatial_audio_available">可用</string>
+    <string name="spatial_audio_not_supported">不支持</string>
+    <string name="spatial_audio_desc_available">Media3 原生空间音频处于活跃状态。音频流将保留多声道环绕声像。</string>
+    <string name="spatial_audio_desc_unsupported">您的设备或已连接耳机未声明支持 Android 13+ 系统 Spatializer。可在上方开启环绕虚拟化器以进行软件立体声扩展。</string>
+    <string name="spatial_audio_dolby_atmos">杜比全景声 / 环绕声</string>
+    <string name="spatial_audio_dolby_supported">系统已支持</string>
+    <string name="spatial_audio_dolby_not_detected">未检测到</string>
 </resources>

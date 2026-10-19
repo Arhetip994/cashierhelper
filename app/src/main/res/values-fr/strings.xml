@@ -270,4 +270,46 @@
     <string name="import_link_label">Lien</string>
     <string name="import_file_error">Échec de la lecture du fichier</string>
     <string name="import_finished_toast">Importation terminée !</string>
+
+    <!-- Spotify Login -->
+    <string name="spotify_login_title">Connexion à Spotify</string>
+    <string name="spotify_login_subtitle">Connectez-vous à Spotify pour importer vos playlists et vos titres favoris</string>
+    <string name="spotify_manual_sp_dc">Cookie sp_dc (Facultatif)</string>
+    <string name="spotify_manual_sp_dc_hint">Collez la valeur de votre cookie sp_dc si la connexion web ne se termine pas</string>
+    <string name="spotify_manual_sp_dc_apply">Appliquer le cookie</string>
+    <string name="spotify_cookie_invalid">Cookie sp_dc invalide ou expiré</string>
+    <string name="spotify_login_success">Connecté en tant que %1$s</string>
+    <string name="spotify_tab_cookie">Cookie sp_dc (Rapide)</string>
+    <string name="spotify_tab_oauth">OAuth 2.0 PKCE</string>
+    <string name="spotify_cookie_label">Cookie sp_dc</string>
+    <string name="spotify_cookie_placeholder">AQB... (collez la valeur du cookie sp_dc)</string>
+    <string name="spotify_cookie_desc">La méthode de connexion la plus fiable sans serveurs tiers</string>
+    <string name="spotify_cookie_submit">Appliquer le cookie et se connecter</string>
+    <string name="spotify_instruction_title">Instructions : comment obtenir le cookie sp_dc</string>
+    <string name="spotify_instruction_body">1. Ouvrez open.spotify.com dans votre navigateur (sur PC ou mobile en mode bureau) et connectez-vous.\n2. Ouvrez les Outils de développement (F12) ou les paramètres du site.\n3. Allez dans Application (Stockage) → Cookies → https://open.spotify.com.\n4. Trouvez la ligne sp_dc, copiez sa valeur et collez-la ci-dessus.</string>
+    <string name="spotify_oauth_desc">Spotify nécessite une application développeur enregistrée pour l\'autorisation OAuth 2.0 dans le navigateur.</string>
+    <string name="spotify_client_id_label">Votre Client ID Spotify</string>
+    <string name="spotify_client_id_placeholder">Ex. : 7a8b9c...</string>
+    <string name="spotify_client_id_hint">URI de redirection dans l\'application Spotify : pixelmusic://spotify-callback</string>
+    <string name="spotify_oauth_button">Se connecter via Chrome Custom Tabs</string>
+    <string name="spotify_client_id_required">Veuillez d\'abord saisir votre Client ID Spotify depuis developer.spotify.com</string>
+    <string name="spotify_create_client_id">Créer un Client ID sur developer.spotify.com</string>
+    <string name="spotify_logout_success">Vous êtes déconnecté de Spotify</string>
+    <string name="spotify_browser_open_error">Impossible d\'ouvrir le navigateur : %1$s</string>
+    <string name="spotify_auth_launch_error">Erreur de lancement de l\'autorisation : %1$s</string>
+    <string name="spotify_activity_error">Impossible de déterminer l\'Activity</string>
+    <string name="spotify_connected">Spotify connecté</string>
+    <string name="spotify_session_active">Session active</string>
+    <string name="spotify_logout">Déconnexion</string>
+
+    <!-- Spatial Audio & Dolby Atmos -->
+    <string name="spatial_audio_title">Audio spatial (Spatial Audio)</string>
+    <string name="spatial_audio_enabled">Activé</string>
+    <string name="spatial_audio_available">Disponible</string>
+    <string name="spatial_audio_not_supported">Non pris en charge</string>
+    <string name="spatial_audio_desc_available">L\'audio spatial natif Media3 est actif. Les flux sonores préservent le panoramique surround multicanal.</string>
+    <string name="spatial_audio_desc_unsupported">Votre appareil ou vos écouteurs connectés ne déclarent pas la prise en charge du Spatializer système Android 13+. Activez Surround Virtualizer ci-dessus pour l\'élargissement stéréo logiciel.</string>
+    <string name="spatial_audio_dolby_atmos">Dolby Atmos / Surround</string>
+    <string name="spatial_audio_dolby_supported">Pris en charge par le système</string>
+    <string name="spatial_audio_dolby_not_detected">Non détecté</string>
 </resources>
