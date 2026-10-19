@@ -231,15 +231,17 @@ class MusixmatchLyricsProvider @Inject constructor(
                     if (fullLine.contains("(") && fullLine.contains(")")) {
                         val match = Regex("""\(([^)]+)\)""").find(fullLine)
                         if (match != null) {
-                            val bg = match.groupValues[1].trim()
-                            mainText = fullLine.replace(match.value, "").trim()
-                            subPhrases = listOf(
-                                SubPhrase(
-                                    startTime = lineStartMs,
-                                    endTime = lineEndMs,
-                                    text = bg
+                            val bg = com.unshoo.pixelmusic.utils.LyricsUtils.cleanLyricBrackets(match.groupValues[1].replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
+                            mainText = com.unshoo.pixelmusic.utils.LyricsUtils.cleanLyricBrackets(fullLine.replace(match.value, "").replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
+                            if (bg.isNotEmpty()) {
+                                subPhrases = listOf(
+                                    SubPhrase(
+                                        startTime = lineStartMs,
+                                        endTime = lineEndMs,
+                                        text = bg
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
 

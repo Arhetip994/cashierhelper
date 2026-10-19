@@ -2061,8 +2061,12 @@ fun LyricLineRow(
                 SubPhrasesSection(
                     subPhrases = line.subPhrases,
                     position = position,
+                    isCurrentLine = isCurrentLine,
+                    useAnimatedLyrics = useAnimatedLyrics,
+                    performanceMode = performanceMode,
                     style = effectiveStyle,
                     accentColor = accentColor,
+                    unhighlightedColor = unhighlightedColor,
                     alignment = horizontalAlignment,
                     textAlign = textAlign
                 )
@@ -2168,8 +2172,12 @@ fun LyricLineRow(
                 SubPhrasesSection(
                     subPhrases = line.subPhrases,
                     position = position,
+                    isCurrentLine = isCurrentLine,
+                    useAnimatedLyrics = useAnimatedLyrics,
+                    performanceMode = performanceMode,
                     style = effectiveStyle,
                     accentColor = accentColor,
+                    unhighlightedColor = unhighlightedColor,
                     alignment = horizontalAlignment,
                     textAlign = textAlign
                 )
@@ -2182,38 +2190,137 @@ fun LyricLineRow(
 private fun SubPhrasesSection(
     subPhrases: List<com.unshoo.pixelmusic.data.model.SubPhrase>,
     position: Long,
+    isCurrentLine: Boolean,
+    useAnimatedLyrics: Boolean,
+    performanceMode: Boolean,
     style: TextStyle,
     accentColor: Color,
+    unhighlightedColor: Color,
     alignment: Alignment.Horizontal,
     textAlign: TextAlign
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 4.dp),
+            .padding(top = 2.dp),
         horizontalAlignment = alignment
     ) {
         for (subPhrase in subPhrases) {
-            val isActive = position in subPhrase.startTime.toLong()..subPhrase.endTime.toLong()
-            val alpha by animateFloatAsState(
-                targetValue = if (isActive) 1f else 0.48f,
-                animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
-                label = "subPhraseAlpha"
-            )
+            val cleanSubPhraseText = remember(subPhrase.text) {
+                LyricsUtils.cleanLyricBrackets(
+                    subPhrase.text.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")
+                ).trim()
+            }
+            if (cleanSubPhraseText.isEmpty()) continue
 
-            Text(
-                text = "(${subPhrase.text})",
-                style = style.copy(
-                    fontSize = (style.fontSize.value * 0.82f).sp,
-                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+            val subStart = subPhrase.startTime.toLong()
+            val subEnd = maxOf(subPhrase.endTime.toLong(), subStart + 1200L)
+
+            // Subphrases smoothly appear ONLY when their moment is active
+            val isVisible = isCurrentLine && (position in (subStart - 200L)..(subEnd + 350L))
+            val isActive = isCurrentLine && (position in subStart..subEnd)
+
+            AnimatedVisibility(
+                visible = isVisible,
+                enter = fadeIn(
+                    animationSpec = tween(
+                        durationMillis = if (performanceMode) 150 else 280,
+                        easing = FastOutSlowInEasing
+                    )
+                ) + expandVertically(
+                    animationSpec = spring(
+                        stiffness = Spring.StiffnessMediumLow,
+                        dampingRatio = Spring.DampingRatioLowBouncy
+                    ),
+                    expandFrom = Alignment.Top
                 ),
-                color = if (isActive) accentColor else accentColor.copy(alpha = 0.5f),
-                textAlign = textAlign,
-                modifier = Modifier
-                    .graphicsLayer { this.alpha = alpha }
-                    .padding(vertical = 2.dp, horizontal = 4.dp)
-            )
+                exit = fadeOut(
+                    animationSpec = tween(
+                        durationMillis = if (performanceMode) 150 else 300,
+                        easing = FastOutSlowInEasing
+                    )
+                ) + shrinkVertically(
+                    animationSpec = tween(
+                        durationMillis = if (performanceMode) 150 else 280,
+                        easing = FastOutSlowInEasing
+                    ),
+                    shrinkTowards = Alignment.Top
+                )
+            ) {
+                val subStyle = remember(style) {
+                    style.copy(
+                        fontSize = (style.fontSize.value * 0.82f).sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                val cleanWords = remember(subPhrase.words) {
+                    subPhrase.words?.mapNotNull { w ->
+                        val cleanedWord = LyricsUtils.cleanLyricBrackets(
+                            w.word.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")
+                        ).trim()
+                        if (cleanedWord.isEmpty()) null else w.copy(word = cleanedWord)
+                    }
+                }
+
+                if (!cleanWords.isNullOrEmpty() && useAnimatedLyrics) {
+                    FlowRow(
+                        modifier = Modifier
+                            .padding(vertical = 2.dp, horizontal = 4.dp),
+                        horizontalArrangement = when (alignment) {
+                            Alignment.CenterHorizontally -> Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                            Alignment.End -> Arrangement.spacedBy(8.dp, Alignment.End)
+                            else -> Arrangement.spacedBy(8.dp, Alignment.Start)
+                        },
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        cleanWords.forEachIndexed { idx, word ->
+                            val wordStart = word.time.toLong()
+                            val nextWordTime = if (idx + 1 < cleanWords.size) {
+                                cleanWords[idx + 1].time.toLong()
+                            } else {
+                                subEnd
+                            }
+                            val wordEnd = normalizeWordEndTime(wordStart, nextWordTime, subEnd)
+                            val isHighlighted = isVisible && position >= wordStart && position < wordEnd
+                            val isPast = isVisible && position >= wordEnd
+
+                            LyricWordSpan(
+                                word = word,
+                                isHighlighted = isHighlighted,
+                                isPast = isPast,
+                                useAnimatedLyrics = useAnimatedLyrics,
+                                style = subStyle,
+                                highlightedColor = accentColor,
+                                unhighlightedColor = unhighlightedColor,
+                                position = position,
+                                wordStartTime = wordStart,
+                                wordEndTime = wordEnd,
+                                isBackground = true,
+                                performanceMode = performanceMode
+                            )
+                        }
+                    }
+                } else {
+                    val alpha by animateFloatAsState(
+                        targetValue = if (isActive) 1f else 0.75f,
+                        animationSpec = tween(durationMillis = 200),
+                        label = "subPhraseActiveAlpha"
+                    )
+
+                    Text(
+                        text = cleanSubPhraseText,
+                        style = subStyle.copy(
+                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+                        ),
+                        color = accentColor.copy(alpha = alpha),
+                        textAlign = textAlign,
+                        modifier = Modifier
+                            .padding(vertical = 2.dp, horizontal = 4.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -2235,7 +2342,7 @@ fun LyricWordSpan(
     modifier: Modifier = Modifier
 ) {
     val cleanText = remember(word.word) {
-        LyricsUtils.cleanLyricBrackets(word.word.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "")).trim()
+        LyricsUtils.cleanLyricBrackets(word.word.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
     }
     if (cleanText.isEmpty()) return
 
@@ -2452,7 +2559,7 @@ internal fun sanitizeSyncedWords(words: List<SyncedWord>): List<SyncedWord> =
     buildList {
         words.forEachIndexed { index, word ->
             val sanitized = if (index == 0) LeadingTagRegex.replace(word.word, "") else word.word
-            val normalized = LyricsUtils.cleanLyricBrackets(sanitized.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "")).trim()
+            val normalized = LyricsUtils.cleanLyricBrackets(sanitized.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")).trim()
             if (normalized.isEmpty()) return@forEachIndexed
 
             add(

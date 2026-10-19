@@ -51,28 +51,41 @@ internal object TtmlLyricsParser {
                 )
             }.ifEmpty { null }
 
-            val subPhrases = pl.backgroundLines.map { bgLine ->
-                val subWords = bgLine.words.map { w ->
-                    com.unshoo.pixelmusic.data.model.SyncedWord(
-                        time = w.startTimeMs,
-                        word = w.text,
-                        startsNewWord = true,
-                        endTime = w.endTimeMs
+            val subPhrases = pl.backgroundLines.mapNotNull { bgLine ->
+                val cleanBgText = com.unshoo.pixelmusic.utils.LyricsUtils.cleanLyricBrackets(
+                    bgLine.text.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")
+                ).trim()
+                if (cleanBgText.isEmpty()) null else {
+                    val subWords = bgLine.words.mapNotNull { w ->
+                        val cleanW = com.unshoo.pixelmusic.utils.LyricsUtils.cleanLyricBrackets(
+                            w.text.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")
+                        ).trim()
+                        if (cleanW.isEmpty()) null else {
+                            com.unshoo.pixelmusic.data.model.SyncedWord(
+                                time = w.startTimeMs,
+                                word = cleanW,
+                                startsNewWord = true,
+                                endTime = w.endTimeMs
+                            )
+                        }
+                    }.ifEmpty { null }
+                    val bgEndTime = bgLine.words.lastOrNull()?.endTimeMs ?: (bgLine.startTimeMs + 3000)
+                    com.unshoo.pixelmusic.data.model.SubPhrase(
+                        startTime = bgLine.startTimeMs,
+                        endTime = bgEndTime,
+                        text = cleanBgText,
+                        words = subWords
                     )
-                }.ifEmpty { null }
-                val bgEndTime = bgLine.words.lastOrNull()?.endTimeMs ?: (bgLine.startTimeMs + 3000)
-                com.unshoo.pixelmusic.data.model.SubPhrase(
-                    startTime = bgLine.startTimeMs,
-                    endTime = bgEndTime,
-                    text = bgLine.text,
-                    words = subWords
-                )
+                }
             }.ifEmpty { null }
 
             val lineEndTime = pl.words.lastOrNull()?.endTimeMs ?: (pl.startTimeMs + 3000)
+            val cleanLineText = com.unshoo.pixelmusic.utils.LyricsUtils.cleanLyricBrackets(
+                pl.text.replace(Regex("""[\(\)\[\]（）【】〔〕《》\{\}]"""), "")
+            ).trim()
             com.unshoo.pixelmusic.data.model.SyncedLine(
                 time = pl.startTimeMs,
-                line = pl.text,
+                line = if (cleanLineText.isNotEmpty()) cleanLineText else pl.text,
                 words = words,
                 agent = pl.agent,
                 isBackground = pl.isBackground,
