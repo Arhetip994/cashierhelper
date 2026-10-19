@@ -174,14 +174,11 @@ class PaxsenixLyricsProvider @Inject constructor(
                 val body = response.body.string()
                 val json = gson.fromJson(body, JsonObject::class.java) ?: return null
 
-                // 1. TTML Content (Apple Music Timed Text XML with word-level sync)
+                // 1. TTML Content (Apple Music Timed Text XML with word-level sync and subphrases)
                 val ttml = json.get("ttmlContent")?.asString
                 if (!ttml.isNullOrBlank()) {
-                    val converted = TtmlLyricsParser.parseToEnhancedLrc(ttml)
-                    if (!converted.isNullOrBlank()) {
-                        Log.d(TAG, "Converted ttmlContent to enhanced LRC")
-                        return converted
-                    }
+                    Log.d(TAG, "Apple Music raw TTML content obtained from Paxsenix: preserving subphrases and word-sync")
+                    return ttml
                 }
 
                 // 2. Pre-formatted ELRC fields

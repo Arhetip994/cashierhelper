@@ -928,8 +928,16 @@ object LyricsUtils {
                                 text = backingText,
                                 words = backingWords.ifEmpty { null }
                             )
-                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), leadText, if (leadWords.isNotEmpty()) leadWords else null, isBackground = false, agent = agent, subPhrases = listOf(subPhrase)))
-                            syncedLines.add(SyncedLine(backingTime, backingText, if (backingWords.isNotEmpty()) backingWords else null, isBackground = true, agent = agent))
+                            syncedLines.add(
+                                SyncedLine(
+                                    time = lineTimestamp.toInt(),
+                                    line = leadText,
+                                    words = if (leadWords.isNotEmpty()) leadWords else null,
+                                    isBackground = false,
+                                    agent = agent,
+                                    subPhrases = listOf(subPhrase)
+                                )
+                            )
                         } else {
                             val cleanDisplayText = cleanLyricBrackets(WHOLE_LINE_BRACKET_PATTERN.matchEntire(rawDisplayText.trim())?.groupValues?.get(1)?.trim() ?: rawDisplayText)
                             val cleanWords = words.map { w ->
@@ -937,12 +945,31 @@ object LyricsUtils {
                             }.filter { it.word.isNotEmpty() }
                             syncedLines.add(SyncedLine(lineTimestamp.toInt(), cleanDisplayText, if (cleanWords.isNotEmpty()) cleanWords else null, isBackground = isBackground || isWholeLineBracket, agent = agent))
                         }
+                    } else if (isWholeLineBracket || isBackground) {
+                        val cleanDisplayText = cleanLyricBrackets(WHOLE_LINE_BRACKET_PATTERN.matchEntire(rawDisplayText.trim())?.groupValues?.get(1)?.trim() ?: rawDisplayText)
+                        val cleanWords = words.map { w ->
+                            w.copy(word = w.word.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "").trim())
+                        }.filter { it.word.isNotEmpty() }
+                        val prev = syncedLines.lastOrNull()
+                        if (prev != null && !prev.isBackground && (lineTimestamp.toInt() - prev.time) in 0..7000) {
+                            val subPhrase = com.unshoo.pixelmusic.data.model.SubPhrase(
+                                startTime = lineTimestamp.toInt(),
+                                endTime = lineTimestamp.toInt() + 3500,
+                                text = cleanDisplayText,
+                                words = cleanWords.ifEmpty { null }
+                            )
+                            syncedLines[syncedLines.lastIndex] = prev.copy(
+                                subPhrases = (prev.subPhrases.orEmpty()) + subPhrase
+                            )
+                        } else {
+                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), cleanDisplayText, if (cleanWords.isNotEmpty()) cleanWords else null, isBackground = true, agent = agent))
+                        }
                     } else {
                         val cleanDisplayText = cleanLyricBrackets(WHOLE_LINE_BRACKET_PATTERN.matchEntire(rawDisplayText.trim())?.groupValues?.get(1)?.trim() ?: rawDisplayText)
                         val cleanWords = words.map { w ->
                             w.copy(word = w.word.replace(Regex("""[\(\)\[\]（）【】〔〕《》]"""), "").trim())
                         }.filter { it.word.isNotEmpty() }
-                        syncedLines.add(SyncedLine(lineTimestamp.toInt(), cleanDisplayText, if (cleanWords.isNotEmpty()) cleanWords else null, isBackground = isBackground || isWholeLineBracket, agent = agent))
+                        syncedLines.add(SyncedLine(lineTimestamp.toInt(), cleanDisplayText, if (cleanWords.isNotEmpty()) cleanWords else null, isBackground = false, agent = agent))
                     }
                 } else {
                     // Standard line without word tags
@@ -961,14 +988,28 @@ object LyricsUtils {
                                 text = backingText
                             )
                             syncedLines.add(SyncedLine(lineTimestamp.toInt(), leadText, isBackground = false, agent = agent, subPhrases = listOf(subPhrase)))
-                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), backingText, isBackground = true, agent = agent))
                         } else {
                             val cleanText = cleanLyricBrackets(WHOLE_LINE_BRACKET_PATTERN.matchEntire(text.trim())?.groupValues?.get(1)?.trim() ?: text)
                             syncedLines.add(SyncedLine(lineTimestamp.toInt(), cleanText, isBackground = isBackground || isWholeLineBracket, agent = agent))
                         }
+                    } else if (isWholeLineBracket || isBackground) {
+                        val cleanText = cleanLyricBrackets(WHOLE_LINE_BRACKET_PATTERN.matchEntire(text.trim())?.groupValues?.get(1)?.trim() ?: text)
+                        val prev = syncedLines.lastOrNull()
+                        if (prev != null && !prev.isBackground && (lineTimestamp.toInt() - prev.time) in 0..7000) {
+                            val subPhrase = com.unshoo.pixelmusic.data.model.SubPhrase(
+                                startTime = lineTimestamp.toInt(),
+                                endTime = lineTimestamp.toInt() + 3500,
+                                text = cleanText
+                            )
+                            syncedLines[syncedLines.lastIndex] = prev.copy(
+                                subPhrases = (prev.subPhrases.orEmpty()) + subPhrase
+                            )
+                        } else {
+                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), cleanText, isBackground = true, agent = agent))
+                        }
                     } else {
                         val cleanText = cleanLyricBrackets(WHOLE_LINE_BRACKET_PATTERN.matchEntire(text.trim())?.groupValues?.get(1)?.trim() ?: text)
-                        syncedLines.add(SyncedLine(lineTimestamp.toInt(), cleanText, isBackground = isBackground || isWholeLineBracket, agent = agent))
+                        syncedLines.add(SyncedLine(lineTimestamp.toInt(), cleanText, isBackground = false, agent = agent))
                     }
                 }
             } else {

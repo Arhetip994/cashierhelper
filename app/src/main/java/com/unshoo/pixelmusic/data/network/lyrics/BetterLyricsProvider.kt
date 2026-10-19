@@ -56,11 +56,8 @@ class BetterLyricsProvider @Inject constructor(
 
                 val ttml = json.get("ttml")?.asString
                 if (!ttml.isNullOrBlank()) {
-                    val enhancedLrc = TtmlLyricsParser.parseToEnhancedLrc(ttml)
-                    if (!enhancedLrc.isNullOrBlank()) {
-                        Log.d(TAG, "Successfully parsed Apple Music TTML via BetterLyrics: $title - $artist")
-                        return@withContext enhancedLrc
-                    }
+                    Log.d(TAG, "Successfully returned Apple Music TTML via BetterLyrics: $title - $artist")
+                    return@withContext ttml
                 }
             }
         } catch (e: Exception) {

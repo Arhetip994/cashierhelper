@@ -264,22 +264,40 @@ class MultiSourceLyricsEngine @Inject constructor(
         val maxWaitTimeoutMs = 6000L
         val startTime = System.currentTimeMillis()
 
-        // Phase 1: Wait for the first valid response (Fastest First)
-        val firstResult = withTimeoutOrNull(fastResultTimeoutMs) {
-            channel.receiveCatching().getOrNull()
+        // Phase 1: Prioritize Tier 1 (TTML + Subphrases) first.
+        // Wait up to fastResultTimeoutMs, checking if a high-quality Tier 1/2 response arrives.
+        val phase1Deadline = startTime + 1500L
+        while (System.currentTimeMillis() < phase1Deadline) {
+            val candidate = withTimeoutOrNull((phase1Deadline - System.currentTimeMillis()).coerceAtLeast(100L)) {
+                channel.receiveCatching().getOrNull()
+            } ?: break
+
+            val (provider, lyrics, _) = candidate
+            val candidateTier = lyrics.resolveTier()
+            val score = calculateLyricsQuality(lyrics, provider, priorityOrder)
+
+            if (bestLyrics == null || candidateTier.rank > bestTier.rank || (candidateTier.rank == bestTier.rank && score > bestScore)) {
+                bestLyrics = lyrics
+                bestProvider = provider
+                bestTier = candidateTier
+                bestScore = score
+            }
+
+            // If we already caught Tier 1 (TTML with subphrases), push it immediately and break!
+            if (bestTier == LyricsTier.TIER_1_TTML_SUBPHRASES) {
+                Log.d(TAG, "Tier 1 TTML Subphrases arrived first from $provider. Emitting immediately!")
+                onProgressiveUpdate(lyrics)
+                break
+            }
         }
 
-        if (firstResult != null) {
-            val (provider, lyrics, _) = firstResult
-            bestLyrics = lyrics
-            bestProvider = provider
-            bestTier = lyrics.resolveTier()
-            bestScore = calculateLyricsQuality(lyrics, provider, priorityOrder)
-            Log.d(TAG, "Fastest lyrics from $provider (tier=$bestTier, score=$bestScore). Emitting immediately!")
-            onProgressiveUpdate(lyrics)
+        // If we found any valid lyrics during Phase 1 (even Tier 2/3/4) and haven't emitted yet:
+        if (bestLyrics != null && bestTier != LyricsTier.TIER_1_TTML_SUBPHRASES) {
+            Log.d(TAG, "Fast initial lyrics emitted from $bestProvider (tier=$bestTier, score=$bestScore)")
+            onProgressiveUpdate(bestLyrics)
         }
 
-        // Phase 2: In background, continue listening for superior tier or higher score
+        // Phase 2: In background, continue listening for superior tier (Tier 1 TTML upgrade)
         val remainingTime = (maxWaitTimeoutMs - (System.currentTimeMillis() - startTime)).coerceAtLeast(1000L)
         withTimeoutOrNull(remainingTime) {
             while (searchJobs.any { it.isActive }) {
@@ -301,6 +319,10 @@ class MultiSourceLyricsEngine @Inject constructor(
                     bestTier = candidateTier
                     bestScore = score
                     onProgressiveUpdate(lyrics)
+                    if (candidateTier == LyricsTier.TIER_1_TTML_SUBPHRASES) {
+                        // Max quality reached!
+                        break
+                    }
                 }
             }
         }

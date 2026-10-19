@@ -13,6 +13,7 @@ import com.kyant.taglib.TagLib
 import com.unshoo.pixelmusic.R
 import com.unshoo.pixelmusic.data.database.MusicDao
 import com.unshoo.pixelmusic.data.model.Lyrics
+import com.unshoo.pixelmusic.data.model.LyricsTier
 import com.unshoo.pixelmusic.data.model.SyncedLine
 import com.unshoo.pixelmusic.data.model.LyricsSourcePreference
 import com.unshoo.pixelmusic.data.model.Song
@@ -315,14 +316,16 @@ class LyricsRepositoryImpl @Inject constructor(
         
         Log.d(TAG, "===== FETCH LYRICS START: ${song.displayArtist} - ${song.title} (forceRefresh=$forceRefresh, source=$sourcePreference) =====")
 
-        // Check in-memory cache unless force refresh (early return - matching Rhythm)
+        // Check in-memory cache unless force refresh (early return only if max quality Tier 1)
         if (!forceRefresh && !isNeteaseTrack) {
             lyricsCache.get(cacheKey)?.let { cached ->
-                Log.d(TAG, "===== RETURNING IN-MEMORY CACHED LYRICS =====")
+                Log.d(TAG, "===== IN-MEMORY CACHE HIT: tier=${cached.resolveTier()} =====")
                 onProgressiveUpdate?.invoke(cached)
-                return@withContext cached
+                if (cached.resolveTier() == LyricsTier.TIER_1_TTML_SUBPHRASES) {
+                    return@withContext cached
+                }
             }
-            Log.d(TAG, "===== NO IN-MEMORY CACHE HIT, proceeding to fetch =====")
+            Log.d(TAG, "===== NO TIER-1 IN-MEMORY CACHE HIT, proceeding to check/fetch =====")
         } else if (!forceRefresh && isNeteaseTrack) {
             Log.d(TAG, "===== BYPASSING IN-MEMORY CACHE FOR NETEASE TRACK =====")
         } else {
@@ -332,9 +335,11 @@ class LyricsRepositoryImpl @Inject constructor(
         if (!forceRefresh) {
             loadStoredLyrics(song, cacheKey, includeMemoryCache = false)?.let { stored ->
                 lyricsCache.put(cacheKey, stored.first)
-                Log.d(TAG, "===== RETURNING STORED LYRICS WITHOUT REMOTE FETCH =====")
+                Log.d(TAG, "===== STORED LYRICS HIT: tier=${stored.first.resolveTier()} =====")
                 onProgressiveUpdate?.invoke(stored.first)
-                return@withContext stored.first
+                if (stored.first.resolveTier() == LyricsTier.TIER_1_TTML_SUBPHRASES) {
+                    return@withContext stored.first
+                }
             }
         }
 
@@ -434,9 +439,11 @@ class LyricsRepositoryImpl @Inject constructor(
         // Check JSON disk cache first (matching Rhythm)
         val cachedJson = loadLocalLyricsJson(song)
         if (cachedJson != null) {
-            Log.d(TAG, "===== LOADED LYRICS FROM JSON DISK CACHE =====")
+            Log.d(TAG, "===== LOADED LYRICS FROM JSON DISK CACHE: tier=${cachedJson.resolveTier()} =====")
             onProgressiveUpdate?.invoke(cachedJson)
-            return@withContext cachedJson
+            if (cachedJson.resolveTier() == LyricsTier.TIER_1_TTML_SUBPHRASES) {
+                return@withContext cachedJson
+            }
         }
 
         // Multi-source progressive engine: fast race + progressive upgrade
@@ -1000,7 +1007,7 @@ class LyricsRepositoryImpl @Inject constructor(
             lyricsDir.mkdirs()
 
             val wordByWordLyrics = lyrics.synced
-                ?.takeIf { lines -> lines.any { !it.words.isNullOrEmpty() } }
+                ?.takeIf { lines -> lines.any { !it.words.isNullOrEmpty() || !it.subPhrases.isNullOrEmpty() } }
                 ?.let(::toWordByWordLrc)
 
             val lyricsData = LyricsData(
@@ -1070,15 +1077,23 @@ class LyricsRepositoryImpl @Inject constructor(
         return lines.joinToString("\n") { line ->
             val linePrefix = "[${formatTimestamp(line.time)}]"
             val words = line.words
-            if (words.isNullOrEmpty()) {
+            val mainText = if (words.isNullOrEmpty()) {
                 linePrefix + line.line
             } else {
                 val wordsPart = words.mapIndexed { index, word ->
                     val separator = if (index > 0 && word.startsNewWord) " " else ""
                     "$separator<${formatTimestamp(word.time)}>${word.word}"
-                }
-                    .joinToString("")
+                }.joinToString("")
                 linePrefix + wordsPart
+            }
+
+            if (!line.subPhrases.isNullOrEmpty()) {
+                val subPart = line.subPhrases.joinToString("\n") { sp ->
+                    "[${formatTimestamp(sp.startTime)}]{bg}(${sp.text})"
+                }
+                "$mainText\n$subPart"
+            } else {
+                mainText
             }
         }
     }

@@ -118,6 +118,11 @@ internal object TtmlLyricsParser {
                 val beginMs = resolveParagraphStartMs(paragraph) ?: continue
                 val agent = getAttributeByLocalName(paragraph, "agent").ifEmpty { null }
 
+                val pRole = getAttributeByLocalName(paragraph, "role")
+                val isBgParagraph = pRole.equals("x-bg", ignoreCase = true) ||
+                        pRole.equals("x-background", ignoreCase = true) ||
+                        pRole.equals("background", ignoreCase = true)
+
                 val spanInfos = mutableListOf<SpanInfo>()
                 val backgroundLines = mutableListOf<ParsedLine>()
 
@@ -128,14 +133,17 @@ internal object TtmlLyricsParser {
                         val span = node as? Element
                         if (span != null && localNameOf(span) == "span") {
                             val role = getAttributeByLocalName(span, "role")
-                            when (role) {
-                                "x-bg" -> {
+                            val isBgSpan = role.equals("x-bg", ignoreCase = true) ||
+                                    role.equals("x-background", ignoreCase = true) ||
+                                    role.equals("background", ignoreCase = true)
+                            when {
+                                isBgSpan -> {
                                     val bgLine = parseBackgroundSpan(span, beginMs)
                                     if (bgLine != null) {
                                         backgroundLines.add(bgLine)
                                     }
                                 }
-                                "x-translation", "x-roman" -> {
+                                role == "x-translation" || role == "x-roman" -> {
                                     // Skip translation/romanization spans from polluting main lyric line
                                 }
                                 else -> {
@@ -174,13 +182,32 @@ internal object TtmlLyricsParser {
                 }
 
                 if (finalText.isNotEmpty()) {
+                    if (isBgParagraph && parsedLines.isNotEmpty()) {
+                        val prev = parsedLines.last()
+                        val prevEnd = prev.words.lastOrNull()?.endTimeMs ?: (prev.startTimeMs + 8000)
+                        if (beginMs in (prev.startTimeMs - 1500)..(prevEnd + 4000)) {
+                            val bgParsed = ParsedLine(
+                                text = finalText,
+                                startTimeMs = beginMs,
+                                words = words,
+                                agent = agent,
+                                isBackground = true,
+                                backgroundLines = emptyList()
+                            )
+                            parsedLines[parsedLines.lastIndex] = prev.copy(
+                                backgroundLines = prev.backgroundLines + bgParsed
+                            )
+                            continue
+                        }
+                    }
+
                     parsedLines.add(
                         ParsedLine(
                             text = finalText,
                             startTimeMs = beginMs,
                             words = words,
                             agent = agent,
-                            isBackground = false,
+                            isBackground = isBgParagraph,
                             backgroundLines = backgroundLines
                         )
                     )

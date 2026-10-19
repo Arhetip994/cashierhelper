@@ -2196,25 +2196,24 @@ private fun SubPhrasesSection(
         for (subPhrase in subPhrases) {
             val isActive = position in subPhrase.startTime.toLong()..subPhrase.endTime.toLong()
             val alpha by animateFloatAsState(
-                targetValue = if (isActive) 1f else 0f,
+                targetValue = if (isActive) 1f else 0.48f,
                 animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
                 label = "subPhraseAlpha"
             )
 
-            if (alpha > 0.01f) {
-                Text(
-                    text = "(${subPhrase.text})",
-                    style = style.copy(
-                        fontSize = (style.fontSize.value * 0.85f).sp,
-                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                    ),
-                    color = accentColor.copy(alpha = alpha * 0.88f),
-                    textAlign = textAlign,
-                    modifier = Modifier
-                        .graphicsLayer { this.alpha = alpha }
-                        .padding(vertical = 2.dp, horizontal = 4.dp)
-                )
-            }
+            Text(
+                text = "(${subPhrase.text})",
+                style = style.copy(
+                    fontSize = (style.fontSize.value * 0.82f).sp,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+                ),
+                color = if (isActive) accentColor else accentColor.copy(alpha = 0.5f),
+                textAlign = textAlign,
+                modifier = Modifier
+                    .graphicsLayer { this.alpha = alpha }
+                    .padding(vertical = 2.dp, horizontal = 4.dp)
+            )
         }
     }
 }
