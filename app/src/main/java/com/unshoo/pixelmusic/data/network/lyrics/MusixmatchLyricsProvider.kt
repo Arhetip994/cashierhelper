@@ -170,6 +170,10 @@ class MusixmatchLyricsProvider @Inject constructor(
                         ?.get("subtitle_body")?.asString
 
                     if (!subtitleBody.isNullOrBlank()) {
+                        if (subtitleBody.contains("gopini", ignoreCase = true) || subtitleBody.contains("woxica", ignoreCase = true)) {
+                            Log.w(TAG, "Musixmatch returned dummy honeypot placeholder! Discarding.")
+                            return@withContext null
+                        }
                         val parsed = LyricsUtils.parseLyrics(subtitleBody)
                         if (!parsed.synced.isNullOrEmpty() || !parsed.plain.isNullOrEmpty()) {
                             Log.d(TAG, "Parsed line subtitles from Musixmatch for $title - $artist")

@@ -54,7 +54,12 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
-private fun Lyrics.isValid(): Boolean = !synced.isNullOrEmpty() || !plain.isNullOrEmpty()
+private fun Lyrics.isDummyOrPlaceholder(): Boolean {
+    val sample = (synced?.take(5)?.joinToString(" ") { it.line } ?: plain?.take(5)?.joinToString(" ")).orEmpty().lowercase()
+    return sample.contains("gopini") || sample.contains("woxica") || sample.contains("quampy") || sample.contains("vudeb")
+}
+
+private fun Lyrics.isValid(): Boolean = (!synced.isNullOrEmpty() || !plain.isNullOrEmpty()) && !isDummyOrPlaceholder()
 
 /**
  * LyricsData for JSON disk cache (matches Rhythm's format)
@@ -1178,13 +1183,16 @@ class LyricsRepositoryImpl @Inject constructor(
                 parseStoredLyrics(rawLyrics)?.let { return@withContext it to rawLyrics }
             }
 
-        song.id.toLongOrNull()
-            ?.let { lyricsDao.getLyrics(it)?.content }
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?.let { rawLyrics ->
-                parseStoredLyrics(rawLyrics)?.let { return@withContext it to rawLyrics }
+        val songIdLong = com.unshoo.pixelmusic.utils.YouTubeIdUtils.safeSongIdToLong(song.id)
+        lyricsDao.getLyrics(songIdLong)?.let { entity ->
+            val content = entity.content.trim()
+            if (content.contains("gopini", ignoreCase = true) || content.contains("woxica", ignoreCase = true)) {
+                Log.w(TAG, "Deleting poisoned dummy lyrics from DB for ${song.title}")
+                lyricsDao.deleteLyrics(songIdLong)
+            } else if (content.isNotBlank()) {
+                parseStoredLyrics(content)?.let { return@withContext it to content }
             }
+        }
 
         readLyricsJsonCache(song)
             ?.takeIf { it.hasLyrics() }
@@ -1197,8 +1205,12 @@ class LyricsRepositoryImpl @Inject constructor(
 
         if (includeMemoryCache) {
             lyricsCache.get(cacheKey)?.let { cached ->
-                lyricsToRawContent(cached)?.let { rawLyrics ->
-                    return@withContext cached to rawLyrics
+                if (cached.isDummyOrPlaceholder()) {
+                    lyricsCache.remove(cacheKey)
+                } else {
+                    lyricsToRawContent(cached)?.let { rawLyrics ->
+                        return@withContext cached to rawLyrics
+                    }
                 }
             }
         }
@@ -1238,6 +1250,11 @@ class LyricsRepositoryImpl @Inject constructor(
         if (!file.exists()) return null
 
         val json = file.readText()
+        if (json.contains("gopini", ignoreCase = true) || json.contains("woxica", ignoreCase = true)) {
+            Log.w(TAG, "Deleting poisoned dummy lyrics JSON cache for ${song.title}")
+            file.delete()
+            return null
+        }
         return gson.fromJson(json, LyricsData::class.java)
     }
 
