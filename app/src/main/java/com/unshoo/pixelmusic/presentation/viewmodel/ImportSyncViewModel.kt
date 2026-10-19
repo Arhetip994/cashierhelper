@@ -171,7 +171,7 @@ class ImportSyncViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isLoadingPlaylists = false,
-                        playlists = list,
+                        playlists = list.distinctBy { pl -> pl.id },
                         selectedPlaylistIds = emptySet()
                     )
                 }

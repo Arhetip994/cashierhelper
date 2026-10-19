@@ -58,7 +58,7 @@ class YouTubeMusicImporterManager @Inject constructor() {
             val firstPage = YouTube.library("FEmusic_liked_playlists").getOrNull()
             if (firstPage != null) {
                 val playlists = firstPage.items.filterIsInstance<PlaylistItem>().filter {
-                    YouTubeItemFilter.isMusicPlaylist(it.title, it.id)
+                    YouTubeItemFilter.isMusicPlaylist(it.title, it.id) && it.id != "LM" && it.id != "VLLM"
                 }
 
                 for (pl in playlists) {
@@ -81,7 +81,7 @@ class YouTubeMusicImporterManager @Inject constructor() {
                 while (continuation != null && pages < 10) {
                     val next = YouTube.libraryContinuation(continuation).getOrNull() ?: break
                     val newItems = next.items.filterIsInstance<PlaylistItem>().filter {
-                        YouTubeItemFilter.isMusicPlaylist(it.title, it.id)
+                        YouTubeItemFilter.isMusicPlaylist(it.title, it.id) && it.id != "LM" && it.id != "VLLM"
                     }
                     for (pl in newItems) {
                         val trackCount = pl.songCountText?.filter { it.isDigit() }?.toIntOrNull() ?: 0
@@ -105,7 +105,7 @@ class YouTubeMusicImporterManager @Inject constructor() {
             Timber.e(e, "Error fetching YouTube Music user playlists")
         }
 
-        result
+        result.distinctBy { it.id }
     }
 
     suspend fun fetchPlaylistTracks(playlist: AccountPlaylist): ParsedPlaylist = withContext(Dispatchers.IO) {

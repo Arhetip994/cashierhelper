@@ -32,6 +32,7 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.unshoo.pixelmusic.data.lossless.LosslessStreamResolver
 import com.unshoo.pixelmusic.data.lossless.applemusic.AppleMusicDrm
 import com.unshoo.pixelmusic.data.lossless.playback.LosslessSchemeRoutingDataSource
@@ -656,9 +657,22 @@ class DualPlayerEngine @Inject constructor(
         val offloadPreferences = TrackSelectionParameters.AudioOffloadPreferences.Builder()
             .setAudioOffloadMode(mode)
             .build()
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .setAudioOffloadPreferences(offloadPreferences)
-            .build()
+        val currentParams = player.trackSelectionParameters
+        player.trackSelectionParameters = if (currentParams is DefaultTrackSelector.Parameters) {
+            currentParams.buildUpon()
+                .setAudioOffloadPreferences(offloadPreferences)
+                .setConstrainAudioChannelCountToDeviceCapabilities(false)
+                .build()
+        } else {
+            (player.trackSelector as? DefaultTrackSelector)?.let { selector ->
+                selector.parameters = selector.buildUponParameters()
+                    .setConstrainAudioChannelCountToDeviceCapabilities(false)
+                    .build()
+            }
+            currentParams.buildUpon()
+                .setAudioOffloadPreferences(offloadPreferences)
+                .build()
+        }
 
         // Media3 versions expose different offload scheduling APIs. Mirror ArchiveTune's
         // defensive reflection so the setting works across builds instead of silently no-oping.
@@ -973,6 +987,7 @@ class DualPlayerEngine @Inject constructor(
         val audioAttributes = Media3AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .setUsage(C.USAGE_MEDIA)
+            .setSpatializationBehavior(C.SPATIALIZATION_BEHAVIOR_AUTO)
             .build()
             
         val resolver = object : ResolvingDataSource.Resolver {

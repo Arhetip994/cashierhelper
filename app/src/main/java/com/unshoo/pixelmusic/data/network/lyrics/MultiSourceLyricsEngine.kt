@@ -2,6 +2,7 @@ package com.unshoo.pixelmusic.data.network.lyrics
 
 import android.util.Log
 import com.unshoo.pixelmusic.data.model.Lyrics
+import com.unshoo.pixelmusic.data.model.LyricsTier
 import com.unshoo.pixelmusic.data.model.Song
 import com.unshoo.pixelmusic.utils.LyricsUtils
 import kotlinx.coroutines.CancellationException
@@ -26,72 +27,66 @@ class MultiSourceLyricsEngine @Inject constructor(
     private val betterLyricsProvider: BetterLyricsProvider,
     private val netEaseLyricsProvider: NetEaseLyricsProvider,
     private val kugouLyricsProvider: KugouLyricsProvider,
+    private val lrcRedLyricsProvider: LrcRedLyricsProvider,
+    private val musixmatchLyricsProvider: MusixmatchLyricsProvider,
     private val userPreferencesRepository: com.unshoo.pixelmusic.data.preferences.UserPreferencesRepository
 ) {
     companion object {
         private const val TAG = "MultiSourceLyricsEngine"
     }
 
-    private fun cleanString(input: String): String {
-        return LyricsCandidateMatcher.cleanTitle(input)
-    }
-
+    /**
+     * Calculates lyrics score strictly enforcing Quality Tiers:
+     * Tier 1 (TTML + Subphrases): 220+ pts
+     * Tier 2 (Word/Syllable sync): 160+ pts
+     * Tier 3 (Line-by-line sync): 80+ pts
+     * Tier 4 (Plain text): 20+ pts
+     */
     fun calculateLyricsQuality(
         lyrics: Lyrics,
         sourceName: String,
         priorityOrder: List<String> = emptyList()
     ): Int {
-        val synced = lyrics.synced
-        val plain = lyrics.plain
-
-        if (synced.isNullOrEmpty() && plain.isNullOrEmpty()) return 0
-
-        // If only plain text
-        if (synced.isNullOrEmpty()) {
-            return 10 + (plain?.size ?: 0).coerceAtMost(20)
+        val tier = lyrics.resolveTier()
+        var baseScore = when (tier) {
+            LyricsTier.TIER_1_TTML_SUBPHRASES -> 220
+            LyricsTier.TIER_2_WORD_SYNC -> 160
+            LyricsTier.TIER_3_LINE_SYNC -> 80
+            LyricsTier.TIER_4_PLAIN -> 20
+            LyricsTier.TIER_NONE -> 0
         }
 
-        // Line-synced base score (60..100)
-        var score = 60 + synced.size.coerceAtMost(40)
+        if (baseScore == 0) return 0
 
-        // Syllable / word-by-word synced bonus (+60 points)
-        val hasWordTimings = synced.any { !it.words.isNullOrEmpty() }
-        if (hasWordTimings) {
-            score += 60
-        }
+        // Small bonus for number of synced lines (completeness)
+        val lineBonus = (lyrics.synced?.size ?: lyrics.plain?.size ?: 0).coerceAtMost(30)
+        baseScore += lineBonus
 
-        // Priority bonus based on user priority order
+        // User priority preference bonus
         val normalizedSource = sourceName.lowercase().replace(" ", "").replace("_", "")
         val priorityIndex = priorityOrder.indexOfFirst { priorityItem ->
             val normPriority = priorityItem.lowercase().replace(" ", "").replace("_", "")
             normalizedSource.contains(normPriority) || normPriority.contains(normalizedSource)
         }
         if (priorityIndex >= 0) {
-            score += when (priorityIndex) {
-                0 -> 40
-                1 -> 25
-                2 -> 15
-                3 -> 10
-                else -> 5
-            }
-        } else {
-            when (normalizedSource) {
-                "betterlyrics", "applemusic", "paxsenix" -> score += 30
-                "kugou" -> score += 20
-                "deezer" -> score += 15
-                "lrclib" -> score += 10
-                "netease" -> score += 5
+            baseScore += when (priorityIndex) {
+                0 -> 25
+                1 -> 18
+                2 -> 12
+                3 -> 8
+                else -> 4
             }
         }
 
-        return score
+        return baseScore
     }
 
     /**
      * Executes progressive 2-phase search:
-     * Phase 1: Immediately invokes [onProgressiveUpdate] as soon as the FASTEST valid provider responds.
-     * Phase 2: In background, continues searching for a SUPERIOR quality version (e.g. word-by-word synced),
-     * and if found, invokes [onProgressiveUpdate] again with the upgraded lyrics.
+     * Phase 1 (Fastest First): Immediately invokes [onProgressiveUpdate] as soon as the FASTEST valid
+     * provider responds with any lyrics tier (0 latency before the user).
+     * Phase 2 (Background Upgrade): Continues waiting for higher-tier sources (Tier 1 TTML or Tier 2 Word Sync)
+     * and seamlessly upgrades lyrics model if a higher tier is found.
      */
     suspend fun fetchLyricsProgressive(
         song: Song,
@@ -106,7 +101,7 @@ class MultiSourceLyricsEngine @Inject constructor(
 
         val durationSeconds = (song.duration / 1000L).toInt().coerceAtLeast(15)
 
-        val channel = Channel<Triple<String, Lyrics, String>>(capacity = 6)
+        val channel = Channel<Triple<String, Lyrics, String>>(capacity = 8)
         val searchJobs = mutableListOf<Job>()
 
         // 1. LRCLIB job
@@ -154,7 +149,34 @@ class MultiSourceLyricsEngine @Inject constructor(
             }
         )
 
-        // 2. Deezer job (fast anonymous GraphQL with duration verification)
+        // 2. Musixmatch job (free desktop client API with richsync syllables)
+        searchJobs.add(
+            launch(Dispatchers.IO) {
+                try {
+                    val mxLyrics = musixmatchLyricsProvider.getLyrics(cleanTitle, cleanArtist, durationSeconds)
+                    if (mxLyrics != null && (!mxLyrics.synced.isNullOrEmpty() || !mxLyrics.plain.isNullOrEmpty())) {
+                        channel.send(Triple("Musixmatch", mxLyrics, ""))
+                    }
+                } catch (_: Exception) {}
+            }
+        )
+
+        // 3. LRC.red job (Enhanced LRC & karaoke syllables)
+        searchJobs.add(
+            launch(Dispatchers.IO) {
+                try {
+                    val rawLrcRed = lrcRedLyricsProvider.getLyrics(cleanTitle, cleanArtist, durationSeconds)
+                    if (!rawLrcRed.isNullOrBlank()) {
+                        val parsed = LyricsUtils.parseLyrics(rawLrcRed).copy(areFromRemote = true)
+                        if (!parsed.synced.isNullOrEmpty() || !parsed.plain.isNullOrEmpty()) {
+                            channel.send(Triple("LRC.red", parsed, rawLrcRed))
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        )
+
+        // 4. Deezer job (fast anonymous GraphQL)
         searchJobs.add(
             launch(Dispatchers.IO) {
                 try {
@@ -169,7 +191,7 @@ class MultiSourceLyricsEngine @Inject constructor(
             }
         )
 
-        // 3. Paxsenix Apple Music job (free & rich word-level / synced)
+        // 5. Paxsenix Apple Music job (free & rich word-level TTML)
         searchJobs.add(
             launch(Dispatchers.IO) {
                 try {
@@ -178,36 +200,6 @@ class MultiSourceLyricsEngine @Inject constructor(
                         val parsed = LyricsUtils.parseLyrics(rawApple).copy(areFromRemote = true)
                         if (!parsed.synced.isNullOrEmpty() || !parsed.plain.isNullOrEmpty()) {
                             channel.send(Triple("AppleMusic", parsed, rawApple))
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-        )
-
-        // 4. NetEase job (verified candidates)
-        searchJobs.add(
-            launch(Dispatchers.IO) {
-                try {
-                    val rawNetease = netEaseLyricsProvider.getLyrics(cleanTitle, cleanArtist, durationSeconds)
-                    if (!rawNetease.isNullOrBlank()) {
-                        val parsed = LyricsUtils.parseLyrics(rawNetease).copy(areFromRemote = true)
-                        if (!parsed.synced.isNullOrEmpty()) {
-                            channel.send(Triple("NetEase", parsed, rawNetease))
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-        )
-
-        // 5. Kugou job (verified candidates)
-        searchJobs.add(
-            launch(Dispatchers.IO) {
-                try {
-                    val rawKugou = kugouLyricsProvider.getLyrics(cleanTitle, cleanArtist, durationSeconds)
-                    if (!rawKugou.isNullOrBlank()) {
-                        val parsed = LyricsUtils.parseLyrics(rawKugou).copy(areFromRemote = true)
-                        if (!parsed.synced.isNullOrEmpty()) {
-                            channel.send(Triple("Kugou", parsed, rawKugou))
                         }
                     }
                 } catch (_: Exception) {}
@@ -229,20 +221,50 @@ class MultiSourceLyricsEngine @Inject constructor(
             }
         )
 
+        // 7. Kugou job (syllables and backing vocals)
+        searchJobs.add(
+            launch(Dispatchers.IO) {
+                try {
+                    val rawKugou = kugouLyricsProvider.getLyrics(cleanTitle, cleanArtist, durationSeconds)
+                    if (!rawKugou.isNullOrBlank()) {
+                        val parsed = LyricsUtils.parseLyrics(rawKugou).copy(areFromRemote = true)
+                        if (!parsed.synced.isNullOrEmpty()) {
+                            channel.send(Triple("Kugou", parsed, rawKugou))
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        )
+
+        // 8. NetEase job
+        searchJobs.add(
+            launch(Dispatchers.IO) {
+                try {
+                    val rawNetease = netEaseLyricsProvider.getLyrics(cleanTitle, cleanArtist, durationSeconds)
+                    if (!rawNetease.isNullOrBlank()) {
+                        val parsed = LyricsUtils.parseLyrics(rawNetease).copy(areFromRemote = true)
+                        if (!parsed.synced.isNullOrEmpty()) {
+                            channel.send(Triple("NetEase", parsed, rawNetease))
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        )
+
         val priorityOrder = runCatching {
             userPreferencesRepository.onlineLyricsSourcesPriorityFlow.firstOrNull()
         }.getOrNull() ?: com.unshoo.pixelmusic.data.model.OnlineLyricsSource.DEFAULT_ORDER
 
         var bestLyrics: Lyrics? = null
         var bestScore = -1
+        var bestTier = LyricsTier.TIER_NONE
         var bestProvider = ""
 
-        // Wait for fastest result with a reasonable timeout (instant response phase)
-        val fastResultTimeoutMs = 3500L
+        val fastResultTimeoutMs = 3000L
         val maxWaitTimeoutMs = 6000L
         val startTime = System.currentTimeMillis()
 
-        // Phase 1: Wait for first response and emit immediately
+        // Phase 1: Wait for the first valid response (Fastest First)
         val firstResult = withTimeoutOrNull(fastResultTimeoutMs) {
             channel.receiveCatching().getOrNull()
         }
@@ -251,22 +273,32 @@ class MultiSourceLyricsEngine @Inject constructor(
             val (provider, lyrics, _) = firstResult
             bestLyrics = lyrics
             bestProvider = provider
+            bestTier = lyrics.resolveTier()
             bestScore = calculateLyricsQuality(lyrics, provider, priorityOrder)
-            Log.d(TAG, "Fastest lyrics from $provider (score=$bestScore). Emitting immediately!")
+            Log.d(TAG, "Fastest lyrics from $provider (tier=$bestTier, score=$bestScore). Emitting immediately!")
             onProgressiveUpdate(lyrics)
         }
 
-        // Phase 2: In background, continue listening for superior quality version according to user priority
+        // Phase 2: In background, continue listening for superior tier or higher score
         val remainingTime = (maxWaitTimeoutMs - (System.currentTimeMillis() - startTime)).coerceAtLeast(1000L)
         withTimeoutOrNull(remainingTime) {
             while (searchJobs.any { it.isActive }) {
                 val candidate = channel.receiveCatching().getOrNull() ?: break
                 val (provider, lyrics, _) = candidate
+                val candidateTier = lyrics.resolveTier()
                 val score = calculateLyricsQuality(lyrics, provider, priorityOrder)
-                if (score > bestScore + 8) {
-                    Log.d(TAG, "Superior lyrics found from $provider (score=$score vs $bestScore). Upgrading in background!")
+
+                val isHigherTier = candidateTier.rank > bestTier.rank
+                val isBetterScoreInSameTier = candidateTier.rank == bestTier.rank && score > bestScore + 10
+
+                if (isHigherTier || isBetterScoreInSameTier) {
+                    Log.d(
+                        TAG,
+                        "Superior lyrics upgraded from $provider (tier=$candidateTier vs $bestTier, score=$score vs $bestScore). Upgrading hot!"
+                    )
                     bestLyrics = lyrics
                     bestProvider = provider
+                    bestTier = candidateTier
                     bestScore = score
                     onProgressiveUpdate(lyrics)
                 }

@@ -47,6 +47,9 @@ data class EqualizerUiState(
     val isLoudnessDismissed: Boolean = false,
     val customPresets: List<EqualizerPreset> = emptyList(), // Added
     val pinnedPresetsNames: List<String> = emptyList(), // Added
+    val isSpatialAudioAvailable: Boolean = false,
+    val isSpatialAudioEnabled: Boolean = false,
+    val isDolbyAtmosSupported: Boolean = false,
 ) {
     // Computed property for accessible presets (Pinned)
     val accessiblePresets: List<EqualizerPreset>
@@ -161,6 +164,8 @@ class EqualizerViewModel @Inject constructor(
                 isLoudnessEnhancerSupported = equalizerManager.isLoudnessEnhancerSupported()
             )
 
+            checkSpatialAndDolbyStatus()
+
             dualPlayerEngine.activeAudioSessionId.collect { sessionId ->
                 if (sessionId != 0) {
                     Timber.tag(TAG).d("Audio Session ID changed to $sessionId.")
@@ -169,9 +174,42 @@ class EqualizerViewModel @Inject constructor(
                         isVirtualizerSupported = equalizerManager.isVirtualizerSupported(),
                         isLoudnessEnhancerSupported = equalizerManager.isLoudnessEnhancerSupported()
                     )
+                    checkSpatialAndDolbyStatus()
                 }
             }
         }
+    }
+
+    fun checkSpatialAndDolbyStatus() {
+        var spatialAvailable = false
+        var spatialEnabled = false
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            try {
+                val spatializer = audioManager.spatializer
+                spatialAvailable = spatializer.isAvailable
+                spatialEnabled = spatializer.isEnabled
+            } catch (e: Exception) {
+                Timber.tag(TAG).w(e, "Error querying Spatializer")
+            }
+        }
+
+        var dolbySupported = false
+        try {
+            val effects = android.media.audiofx.AudioEffect.queryEffects()
+            dolbySupported = effects.any { effect ->
+                val name = effect.name.lowercase()
+                val implementor = effect.implementor.lowercase()
+                name.contains("dolby") || name.contains("atmos") || implementor.contains("dolby")
+            }
+        } catch (e: Exception) {
+            Timber.tag(TAG).w(e, "Error querying AudioEffects for Dolby")
+        }
+
+        _uiState.value = _uiState.value.copy(
+            isSpatialAudioAvailable = spatialAvailable,
+            isSpatialAudioEnabled = spatialEnabled,
+            isDolbyAtmosSupported = dolbySupported
+        )
     }
     
     private fun observeEqualizerState() {

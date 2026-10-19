@@ -1,30 +1,64 @@
 package com.unshoo.pixelmusic.presentation.screens.lossless
 
-import android.annotation.SuppressLint
-import android.webkit.CookieManager
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.app.Activity
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.unshoo.pixelmusic.R
 import com.unshoo.pixelmusic.data.importer.spotify.SpotifyAccountManager
 import dagger.hilt.EntryPoint
@@ -34,11 +68,6 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.atomic.AtomicBoolean
-
-private const val LOGIN_URL = "https://accounts.spotify.com/en/login"
-private const val SPOTIFY_OPEN_ORIGIN = "https://open.spotify.com"
-private const val SPOTIFY_ACCOUNTS_ORIGIN = "https://accounts.spotify.com"
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)
@@ -46,12 +75,12 @@ interface SpotifyLoginEntryPoint {
     fun spotifyAccountManager(): SpotifyAccountManager
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpotifyLoginScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val handled = remember { AtomicBoolean(false) }
+    val activity = context as? Activity
 
     val spotifyAccountManager = remember(context) {
         EntryPointAccessors.fromApplication(
@@ -60,50 +89,29 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
         ).spotifyAccountManager()
     }
 
+    val isLoggedIn by spotifyAccountManager.isLoggedInFlow.collectAsState(initial = false)
+    val profile by spotifyAccountManager.profileFlow.collectAsState(initial = null)
+    val customClientId by spotifyAccountManager.customClientIdFlow.collectAsState(initial = null)
+
+    var clientIdText by remember(customClientId) { mutableStateOf(customClientId.orEmpty()) }
     var manualSpDc by remember { mutableStateOf("") }
     var manualVerifying by remember { mutableStateOf(false) }
+    var showAdvanced by remember { mutableStateOf(false) }
 
     fun toast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
-    fun readSpDc(): String? {
-        val cm = CookieManager.getInstance()
-        val cookies = sequenceOf(
-            cm.getCookie(SPOTIFY_OPEN_ORIGIN),
-            cm.getCookie(SPOTIFY_ACCOUNTS_ORIGIN),
-            cm.getCookie("https://spotify.com")
-        ).filterNotNull().joinToString("; ")
-
-        return cookies.split(';').firstNotNullOfOrNull { part ->
-            val pieces = part.split('=', limit = 2)
-            if (pieces.size == 2) {
-                val name = pieces[0].trim()
-                val value = pieces[1].trim()
-                if (name.equals("sp_dc", ignoreCase = true) && value.isNotEmpty()) {
-                    value
-                } else null
-            } else null
+    fun handlePkceLogin() {
+        if (activity == null) {
+            toast("Не удалось определить Activity")
+            return
         }
-    }
-
-    suspend fun persist(spDc: String): Boolean {
-        spotifyAccountManager.saveSpDc(spDc)
-        val profile = withContext(Dispatchers.IO) { spotifyAccountManager.verifyAndRefreshProfile() }
-        if (profile == null) {
-            toast(context.getString(R.string.spotify_cookie_invalid))
-            return false
-        }
-        toast(context.getString(R.string.spotify_login_success, profile.username))
-        return true
-    }
-
-    fun finishLogin(spDc: String) {
         scope.launch {
-            if (persist(spDc)) {
-                onBack()
-            } else {
-                handled.set(false)
+            try {
+                spotifyAccountManager.startPkceAuth(activity, clientIdText.ifBlank { null })
+            } catch (e: Exception) {
+                toast("Ошибка запуска авторизации: ${e.message}")
             }
         }
     }
@@ -118,62 +126,206 @@ fun SpotifyLoginScreen(onBack: () -> Unit) {
         manualVerifying = true
         scope.launch {
             try {
-                if (persist(spDc)) onBack()
+                spotifyAccountManager.saveSpDc(spDc)
+                val prof = withContext(Dispatchers.IO) { spotifyAccountManager.verifyAndRefreshProfile() }
+                if (prof == null) {
+                    toast(context.getString(R.string.spotify_cookie_invalid))
+                } else {
+                    toast(context.getString(R.string.spotify_login_success, prof.username))
+                    onBack()
+                }
             } finally {
                 manualVerifying = false
             }
         }
     }
 
-    AuthWebViewScreen(
-        title = stringResource(R.string.spotify_login_title),
-        subtitle = stringResource(R.string.spotify_login_subtitle),
-        onBack = onBack,
-        footer = {
-            OutlinedTextField(
-                value = manualSpDc,
-                onValueChange = { manualSpDc = it },
-                label = { Text(stringResource(R.string.spotify_manual_sp_dc)) },
-                supportingText = { Text(stringResource(R.string.spotify_manual_sp_dc_hint)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth(),
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.spotify_login_title)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Назад")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             )
-            Button(
-                onClick = { submitManualSpDc() },
-                enabled = !manualVerifying && manualSpDc.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            // Spotify Header Icon
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF1DB954)),
+                contentAlignment = Alignment.Center
             ) {
-                if (manualVerifying) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(stringResource(R.string.spotify_manual_sp_dc_apply))
+                Icon(
+                    painter = painterResource(R.drawable.rounded_headphones_24),
+                    contentDescription = null,
+                    tint = Color.Black,
+                    modifier = Modifier.size(44.dp)
+                )
             }
-        },
-        factory = { ctx ->
-            WebView(ctx).apply {
-                webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView, url: String?) {
-                        val spDc = readSpDc() ?: return
-                        if (!handled.compareAndSet(false, true)) return
-                        finishLogin(spDc)
+
+            Text(
+                text = stringResource(R.string.spotify_login_title),
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                textAlign = TextAlign.Center
+            )
+
+            Text(
+                text = stringResource(R.string.spotify_login_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+
+            // Current logged-in state card
+            if (isLoggedIn) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        if (profile?.avatarUrl != null) {
+                            AsyncImage(
+                                model = profile?.avatarUrl,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                            )
+                        } else {
+                            Icon(
+                                Icons.Rounded.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = profile?.username ?: "Spotify подключен",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                text = "Сессия активна",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    spotifyAccountManager.logout()
+                                    toast("Вы вышли из Spotify")
+                                }
+                            }
+                        ) {
+                            Text("Выйти")
+                        }
                     }
                 }
-                settings.apply {
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                    setSupportZoom(true)
-                    builtInZoomControls = true
-                    displayZoomControls = false
-                    userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-                }
-                resetAuthWebViewSession(ctx, this, clearCookies = false) {
-                    CookieManager.getInstance().setAcceptCookie(true)
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                    loadUrl(LOGIN_URL)
+            }
+
+            // Main PKCE Auth Button
+            Button(
+                onClick = { handlePkceLogin() },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF1DB954),
+                    contentColor = Color.Black
+                ),
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+            ) {
+                Icon(Icons.Rounded.OpenInNew, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "Войти через Spotify (Chrome Custom Tabs)",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+
+            Text(
+                text = "Авторизация происходит безопасно в вашем браузере через официальный протокол OAuth 2.0 PKCE без необходимости передачи пароля сторонним приложениям.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            // Advanced options toggle
+            OutlinedButton(
+                onClick = { showAdvanced = !showAdvanced },
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (showAdvanced) "Скрыть дополнительные параметры" else "Дополнительные параметры (Cookie / Client ID)")
+            }
+
+            AnimatedVisibility(visible = showAdvanced) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = clientIdText,
+                        onValueChange = {
+                            clientIdText = it
+                            scope.launch { spotifyAccountManager.saveCustomClientId(it.ifBlank { null }) }
+                        },
+                        label = { Text("Custom Spotify Client ID") },
+                        supportingText = { Text("Оставьте пустым для использования Client ID по умолчанию") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = manualSpDc,
+                        onValueChange = { manualSpDc = it },
+                        label = { Text(stringResource(R.string.spotify_manual_sp_dc)) },
+                        supportingText = { Text(stringResource(R.string.spotify_manual_sp_dc_hint)) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Button(
+                        onClick = { submitManualSpDc() },
+                        enabled = !manualVerifying && manualSpDc.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (manualVerifying) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(stringResource(R.string.spotify_manual_sp_dc_apply))
+                    }
                 }
             }
         }
-    )
+    }
 }

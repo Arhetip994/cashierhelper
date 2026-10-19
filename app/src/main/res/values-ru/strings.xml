@@ -342,4 +342,6 @@
     <string name="import_connect_service_desc">Войдите в свой аккаунт %1$s для автоматического просмотра и переноса ваших плейлистов и любимых треков.</string>
     <string name="import_connected_as">Вы вошли как: %1$s</string>
     <string name="import_tracks_count">%1$d треков</string>
+    <string name="lyrics_performance_mode_title">Режим высокой производительности</string>
+    <string name="lyrics_performance_mode_subtitle">Отключает размытие фона, ограничивает синхронизацию 30 FPS и оптимизирует пословную отрисовку для слабых устройств</string>
 </resources>

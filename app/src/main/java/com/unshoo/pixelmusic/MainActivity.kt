@@ -182,6 +182,8 @@ class MainActivity : ComponentActivity() {
     lateinit var syncManager: SyncManager
     @Inject
     lateinit var musicRepository: MusicRepository
+    @Inject
+    lateinit var spotifyAccountManager: com.unshoo.pixelmusic.data.importer.spotify.SpotifyAccountManager
     // For handling shortcut navigation - using StateFlow so composables can observe changes
     private val _pendingPlaylistNavigation = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     private val _pendingShuffleAll = kotlinx.coroutines.flow.MutableStateFlow(false)
@@ -197,9 +199,35 @@ class MainActivity : ComponentActivity() {
         super.attachBaseContext(AppLocaleManager.wrapContext(newBase))
     }
 
+    private fun handleCustomSchemeIntent(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "pixelmusic" && uri.host == "spotify-callback") {
+            val code = uri.getQueryParameter("code")
+            val error = uri.getQueryParameter("error")
+            lifecycleScope.launch {
+                val result = spotifyAccountManager.handleAuthCallback(code, error)
+                if (result.isSuccess) {
+                    val name = result.getOrNull()?.username ?: ""
+                    android.widget.Toast.makeText(
+                        this@MainActivity,
+                        getString(R.string.spotify_login_success, name),
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    android.widget.Toast.makeText(
+                        this@MainActivity,
+                        result.exceptionOrNull()?.message ?: "Spotify auth failed",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
     @OptIn(ExperimentalPermissionsApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         LogUtils.d(this, "onCreate")
+        handleCustomSchemeIntent(intent)
         val activeIcon = AppIconManager.getActiveLauncherIcon(this)
         setTheme(activeIcon.splashThemeRes)
         val splashScreen = installSplashScreen()
@@ -465,6 +493,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
+        handleCustomSchemeIntent(intent)
 
         when {
             // Handle shuffle all shortcut / tile

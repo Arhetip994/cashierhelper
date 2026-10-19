@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -400,10 +401,10 @@ fun ImportSyncScreen(
                             EmptyPlaylistsCard()
                         }
                     } else {
-                        items(
+                        itemsIndexed(
                             items = uiState.playlists,
-                            key = { "${uiState.selectedService.id}_${it.id}" }
-                        ) { playlist ->
+                            key = { index, playlist -> "${uiState.selectedService.id}_${playlist.id}_$index" }
+                        ) { _, playlist ->
                             AccountPlaylistRow(
                                 playlist = playlist,
                                 isSelected = playlist.id in uiState.selectedPlaylistIds,

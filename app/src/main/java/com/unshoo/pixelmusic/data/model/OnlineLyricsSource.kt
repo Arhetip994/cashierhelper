@@ -7,6 +7,8 @@ enum class OnlineLyricsSource(
     val badge: String
 ) {
     APPLE_MUSIC("applemusic", "Apple Music", "Syllable / TTML word-by-word synced", "Слоги / TTML"),
+    MUSIXMATCH("musixmatch", "Musixmatch", "Richsync syllables & full lyrics", "Richsync / Слоги"),
+    LRC_RED("lrcred", "LRC.red", "Enhanced LRC & karaoke syllables", "Караоке / Enhanced"),
     LRCLIB("lrclib", "LRCLIB", "Massive open database of synced lyrics", "Синхронизированные"),
     DEEZER("deezer", "Deezer", "Fast synced karaoke lyrics", "Караоке"),
     KUGOU("kugou", "Kugou", "Word-by-word syllable karaoke", "Пословное"),
@@ -18,6 +20,8 @@ enum class OnlineLyricsSource(
 
         val DEFAULT_ORDER = listOf(
             APPLE_MUSIC.id,
+            MUSIXMATCH.id,
+            LRC_RED.id,
             LRCLIB.id,
             DEEZER.id,
             KUGOU.id,

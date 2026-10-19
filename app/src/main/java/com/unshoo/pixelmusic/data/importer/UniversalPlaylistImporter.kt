@@ -48,7 +48,8 @@ class UniversalPlaylistImporter @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val gson: Gson,
     private val musicDao: MusicDao,
-    private val playlistPreferencesRepository: PlaylistPreferencesRepository
+    private val playlistPreferencesRepository: PlaylistPreferencesRepository,
+    private val spotifyAccountManager: com.unshoo.pixelmusic.data.importer.spotify.SpotifyAccountManager
 ) {
     companion object {
         private const val USER_AGENT =
@@ -56,7 +57,9 @@ class UniversalPlaylistImporter @Inject constructor(
 
         private val YANDEX_PLAYLIST_REGEX = Regex("music\\.yandex\\.(?:ru|com|by|kz)/users/([^/]+)/playlists/(\\d+)")
         private val YANDEX_ALBUM_REGEX = Regex("music\\.yandex\\.(?:ru|com|by|kz)/album/(\\d+)")
-        private val SPOTIFY_REGEX = Regex("(?:open\\.spotify\\.com/(?:intl-[a-zA-Z-]+/)?(?:embed/)?|spotify:)(playlist|album)[/:]([A-Za-z0-9]{22})")
+        private val SPOTIFY_REGEX = Regex("(?:open\\.spotify\\.com/(?:intl-[a-zA-Z-]+/)?(?:embed/)?|spotify:)(playlist|album)[/:]([A-Za-z0-9]+)")
+        private val SPOTIFY_GENERIC_PLAYLIST_REGEX = Regex("playlist/([a-zA-Z0-9]+)")
+        private val SPOTIFY_GENERIC_ALBUM_REGEX = Regex("album/([a-zA-Z0-9]+)")
         private val APPLE_REGEX = Regex("music\\.apple\\.com/[a-z]{2}/(playlist|album)/(?:[^/?#]+/)?(pl\\.[A-Za-z0-9-]+|\\d+)")
         private val DEEZER_REGEX = Regex("deezer\\.com/(?:[a-z]{2}/)?(playlist|album)/(\\d+)")
         private val YT_LIST_REGEX = Regex("[?&]list=([A-Za-z0-9_-]+)")
@@ -355,55 +358,88 @@ class UniversalPlaylistImporter @Inject constructor(
     }
 
     // --- SPOTIFY ---
-    private fun fetchSpotify(url: String): ParsedPlaylist {
-        val match = SPOTIFY_REGEX.find(url)
-            ?: throw IllegalArgumentException("Неверная ссылка Spotify")
-        val (type, id) = match.destructured
-
-        val html = httpGet("https://open.spotify.com/embed/$type/$id")
-        val scriptMatch = Regex("<script id=\"__NEXT_DATA__\" type=\"application/json\">(.*?)</script>", RegexOption.DOT_MATCHES_ALL)
-            .find(html) ?: throw IllegalStateException("Не удалось прочитать плейлист Spotify")
-
-        val jsonStr = scriptMatch.groupValues[1]
-        val root = gson.fromJson(jsonStr, JsonObject::class.java)
-        val entity = root.getAsJsonObject("props")
-            ?.getAsJsonObject("pageProps")
-            ?.getAsJsonObject("state")
-            ?.getAsJsonObject("data")
-            ?.getAsJsonObject("entity")
-            ?: throw IllegalStateException("Плейлист Spotify приватный или не найден")
-
-        val title = entity.get("name")?.asString ?: entity.get("title")?.asString ?: "Spotify $type"
-        val coverUrl = entity.getAsJsonObject("coverArt")
-            ?.getAsJsonArray("sources")
-            ?.mapNotNull { it.asJsonObject.get("url")?.asString }
-            ?.lastOrNull()
-
-        val trackList = entity.getAsJsonArray("trackList") ?: JsonArray()
-        val tracks = mutableListOf<ImportedTrack>()
-
-        for (elem in trackList) {
-            val obj = elem.asJsonObject
-            val trackTitle = obj.get("title")?.asString ?: continue
-            val artist = obj.get("subtitle")?.asString ?: ""
-            val durationMs = obj.get("duration")?.asLong
-
-            tracks.add(
-                ImportedTrack(
-                    title = trackTitle,
-                    artist = artist,
-                    durationMs = durationMs,
-                    coverUrl = coverUrl
-                )
-            )
+    private suspend fun fetchSpotify(url: String): ParsedPlaylist {
+        val cleanUrl = url.substringBefore('?').substringBefore('#').trim()
+        val match = SPOTIFY_REGEX.find(cleanUrl)
+        val (type, id) = if (match != null) {
+            val (t, i) = match.destructured
+            t to i
+        } else {
+            val plMatch = SPOTIFY_GENERIC_PLAYLIST_REGEX.find(cleanUrl)
+            if (plMatch != null) {
+                "playlist" to plMatch.groupValues[1]
+            } else {
+                val albMatch = SPOTIFY_GENERIC_ALBUM_REGEX.find(cleanUrl)
+                if (albMatch != null) {
+                    "album" to albMatch.groupValues[1]
+                } else {
+                    throw IllegalArgumentException("Неверная ссылка Spotify")
+                }
+            }
         }
 
-        return ParsedPlaylist(
-            title = title,
-            coverUrl = coverUrl,
-            tracks = tracks,
-            source = "Spotify"
-        )
+        Timber.tag("SpotifyImporter").d("Fetching Spotify %s with id: %s", type, id)
+
+        // Try authenticated / web player API with pagination first
+        val publicParsed = spotifyAccountManager.fetchPublicSpotifyTracks(type, id)
+        if (publicParsed != null && publicParsed.tracks.isNotEmpty()) {
+            Timber.tag("SpotifyImporter").i("Successfully fetched %d tracks via Spotify API", publicParsed.tracks.size)
+            return publicParsed
+        }
+
+        // Fallback to Spotify Embed with HTTP logging
+        try {
+            val embedUrl = "https://open.spotify.com/embed/$type/$id"
+            val html = httpGet(embedUrl)
+            val scriptMatch = Regex("<script id=\"__NEXT_DATA__\"[^>]*>(.*?)</script>", RegexOption.DOT_MATCHES_ALL)
+                .find(html) ?: throw IllegalStateException("Не удалось прочитать плейлист Spotify")
+
+            val jsonStr = scriptMatch.groupValues[1]
+            val root = gson.fromJson(jsonStr, JsonObject::class.java)
+            val entity = root.getAsJsonObject("props")
+                ?.getAsJsonObject("pageProps")
+                ?.getAsJsonObject("state")
+                ?.getAsJsonObject("data")
+                ?.getAsJsonObject("entity")
+                ?: throw IllegalStateException("Плейлист Spotify приватный или не найден")
+
+            val title = entity.get("name")?.asString ?: entity.get("title")?.asString ?: "Spotify $type"
+            val coverUrl = entity.getAsJsonObject("coverArt")
+                ?.getAsJsonArray("sources")
+                ?.mapNotNull { it.asJsonObject.get("url")?.asString }
+                ?.lastOrNull()
+
+            val trackList = entity.getAsJsonArray("trackList") ?: JsonArray()
+            val tracks = mutableListOf<ImportedTrack>()
+
+            for (elem in trackList) {
+                val obj = elem.asJsonObject
+                val trackTitle = obj.get("title")?.asString ?: continue
+                val artist = obj.get("subtitle")?.asString ?: ""
+                val durationMs = obj.get("duration")?.asLong
+
+                tracks.add(
+                    ImportedTrack(
+                        title = trackTitle,
+                        artist = artist,
+                        durationMs = durationMs,
+                        coverUrl = coverUrl
+                    )
+                )
+            }
+
+            Timber.tag("SpotifyImporter").i("Fetched %d tracks via Spotify Embed for %s/%s", tracks.size, type, id)
+
+            return ParsedPlaylist(
+                title = title,
+                coverUrl = coverUrl,
+                tracks = tracks,
+                source = "Spotify"
+            )
+        } catch (e: Exception) {
+            Timber.tag("SpotifyImporter").e(e, "Error parsing Spotify embed for %s/%s", type, id)
+            throw e
+        }
     }
 
     // --- APPLE MUSIC ---

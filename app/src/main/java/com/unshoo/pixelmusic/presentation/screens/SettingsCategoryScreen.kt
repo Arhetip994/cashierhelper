@@ -742,6 +742,13 @@ fun SettingsCategoryScreen(
                                     leadingIcon = { Icon(Icons.Outlined.ClearAll, null, tint = MaterialTheme.colorScheme.secondary) },
                                     onClick = { showClearLyricsDialog = true }
                                 )
+                                SwitchSettingItem(
+                                    title = stringResource(R.string.lyrics_performance_mode_title),
+                                    subtitle = stringResource(R.string.lyrics_performance_mode_subtitle),
+                                    checked = uiState.lyricsPerformanceMode,
+                                    onCheckedChange = { settingsViewModel.setLyricsPerformanceMode(it) },
+                                    leadingIcon = { Icon(Icons.Outlined.Speed, null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
                             }
 
                             SettingsSubsection(title = stringResource(R.string.presentation_batch_f_exp_visual_quality)) {

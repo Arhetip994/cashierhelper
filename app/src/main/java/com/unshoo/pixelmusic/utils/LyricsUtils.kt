@@ -791,6 +791,10 @@ object LyricsUtils {
 
         val normalizedInput = stripLeadingLyricsDocumentNoise(lyricsText)
         if (looksLikeTtmlDocument(normalizedInput)) {
+            val direct = TtmlLyricsParser.parseTtmlToLyrics(normalizedInput)
+            if (direct != null && !direct.synced.isNullOrEmpty()) {
+                return direct
+            }
             val converted = TtmlLyricsParser.parseToEnhancedLrc(normalizedInput)
                 ?: return Lyrics(plain = emptyList(), synced = emptyList())
             return parseLyrics(converted)
@@ -917,8 +921,14 @@ object LyricsUtils {
                                 }
                                 if (rawW.any { it in ")]）】〕》" }) inBracket = false
                             }
-                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), leadText, if (leadWords.isNotEmpty()) leadWords else null, isBackground = false, agent = agent))
                             val backingTime = backingWords.firstOrNull()?.time ?: lineTimestamp.toInt()
+                            val subPhrase = com.unshoo.pixelmusic.data.model.SubPhrase(
+                                startTime = backingTime,
+                                endTime = backingTime + 3000,
+                                text = backingText,
+                                words = backingWords.ifEmpty { null }
+                            )
+                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), leadText, if (leadWords.isNotEmpty()) leadWords else null, isBackground = false, agent = agent, subPhrases = listOf(subPhrase)))
                             syncedLines.add(SyncedLine(backingTime, backingText, if (backingWords.isNotEmpty()) backingWords else null, isBackground = true, agent = agent))
                         } else {
                             val cleanDisplayText = cleanLyricBrackets(WHOLE_LINE_BRACKET_PATTERN.matchEntire(rawDisplayText.trim())?.groupValues?.get(1)?.trim() ?: rawDisplayText)
@@ -945,7 +955,12 @@ object LyricsUtils {
                             .trim()
 
                         if (leadText.isNotEmpty() && backingText.isNotEmpty()) {
-                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), leadText, isBackground = false, agent = agent))
+                            val subPhrase = com.unshoo.pixelmusic.data.model.SubPhrase(
+                                startTime = lineTimestamp.toInt(),
+                                endTime = lineTimestamp.toInt() + 3000,
+                                text = backingText
+                            )
+                            syncedLines.add(SyncedLine(lineTimestamp.toInt(), leadText, isBackground = false, agent = agent, subPhrases = listOf(subPhrase)))
                             syncedLines.add(SyncedLine(lineTimestamp.toInt(), backingText, isBackground = true, agent = agent))
                         } else {
                             val cleanText = cleanLyricBrackets(WHOLE_LINE_BRACKET_PATTERN.matchEntire(text.trim())?.groupValues?.get(1)?.trim() ?: text)
@@ -1142,15 +1157,32 @@ object LyricsUtils {
             }
 
             // Plain text: strip all <…> tokens
-            val plainText = KUGOU_WORD_PATTERN.toRegex().replace(body) { it.groupValues[4] }.trim()
-            if (plainText.isEmpty() && words.isEmpty()) continue
-            if (isLyricsCreditLine(plainText)) continue
+            val rawPlainText = KUGOU_WORD_PATTERN.toRegex().replace(body) { it.groupValues[4] }.trim()
+            if (rawPlainText.isEmpty() && words.isEmpty()) continue
+            if (isLyricsCreditLine(rawPlainText)) continue
+
+            var mainLine = rawPlainText
+            var subPhrases: List<com.unshoo.pixelmusic.data.model.SubPhrase>? = null
+            if (INLINE_BRACKET_PATTERN.containsMatchIn(rawPlainText)) {
+                val matches = INLINE_BRACKET_PATTERN.findAll(rawPlainText).map { it.groupValues[1].trim() }.filter { it.isNotEmpty() }.toList()
+                if (matches.isNotEmpty()) {
+                    mainLine = INLINE_BRACKET_PATTERN.replace(rawPlainText, " ").replace(Regex("""\s+"""), " ").trim()
+                    subPhrases = matches.map { bgText ->
+                        com.unshoo.pixelmusic.data.model.SubPhrase(
+                            startTime = lineStartMs.toInt(),
+                            endTime = (lineStartMs + 3000L).toInt(),
+                            text = bgText
+                        )
+                    }
+                }
+            }
 
             syncedLines.add(
                 SyncedLine(
                     time = lineStartMs.toInt(),
-                    line = plainText,
-                    words = words.takeIf { it.isNotEmpty() }
+                    line = mainLine,
+                    words = words.takeIf { it.isNotEmpty() },
+                    subPhrases = subPhrases
                 )
             )
         }

@@ -99,6 +99,7 @@ data class SettingsUiState(
     val folderBackGestureNavigation: Boolean = true,
     val lyricsSourcePreference: LyricsSourcePreference = LyricsSourcePreference.EMBEDDED_FIRST,
     val onlineLyricsSourcesPriority: List<String> = com.unshoo.pixelmusic.data.model.OnlineLyricsSource.DEFAULT_ORDER,
+    val lyricsPerformanceMode: Boolean = false,
     val autoScanLrcFiles: Boolean = false,
     val blockedDirectories: Set<String> = emptySet(),
     val availableModels: List<GeminiModel> = emptyList(),
@@ -960,6 +961,12 @@ class SettingsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            userPreferencesRepository.lyricsPerformanceModeFlow.collect { mode ->
+                _uiState.update { it.copy(lyricsPerformanceMode = mode) }
+            }
+        }
+
+        viewModelScope.launch {
             userPreferencesRepository.forceHighQualityOnMobileFlow.collect { enabled ->
                 _uiState.update { it.copy(forceHighQualityOnMobile = enabled) }
             }
@@ -1546,6 +1553,12 @@ fun setBeta05CleanInstallDisclaimerDismissed(dismissed: Boolean) {
     fun setOnlineLyricsSourcesPriority(order: List<String>) {
         viewModelScope.launch {
             userPreferencesRepository.setOnlineLyricsSourcesPriority(order)
+        }
+    }
+
+    fun setLyricsPerformanceMode(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setLyricsPerformanceMode(enabled)
         }
     }
 

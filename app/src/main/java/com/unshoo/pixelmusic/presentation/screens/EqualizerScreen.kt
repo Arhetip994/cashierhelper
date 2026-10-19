@@ -363,6 +363,15 @@ fun EqualizerScreen(
                     onDismissLoudness = { equalizerViewModel.setLoudnessDismissed(true) }
                 )
             }
+
+            // Spatial Audio & Dolby Atmos Section
+            item(key = "spatial_dolby_section") {
+                SpatialAudioDolbyCard(
+                    isSpatialAudioAvailable = uiState.isSpatialAudioAvailable,
+                    isSpatialAudioEnabled = uiState.isSpatialAudioEnabled,
+                    isDolbyAtmosSupported = uiState.isDolbyAtmosSupported
+                )
+            }
             
             // Volume Control
             item(key = "volume_control") {
@@ -1837,3 +1846,98 @@ private fun HybridFrequencyResponseGraph(
         }
      }
 }
+
+@Composable
+private fun SpatialAudioDolbyCard(
+    isSpatialAudioAvailable: Boolean,
+    isSpatialAudioEnabled: Boolean,
+    isDolbyAtmosSupported: Boolean
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.rounded_headphones_24),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "Пространственное аудио (Spatial Audio)",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isSpatialAudioAvailable && isSpatialAudioEnabled) Color(0xFF1DB954).copy(alpha = 0.2f)
+                            else if (isSpatialAudioAvailable) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surfaceContainerHigh
+                ) {
+                    Text(
+                        text = if (isSpatialAudioAvailable && isSpatialAudioEnabled) "Включено"
+                               else if (isSpatialAudioAvailable) "Доступно"
+                               else "Не поддерживается",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = if (isSpatialAudioAvailable && isSpatialAudioEnabled) Color(0xFF1DB954)
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = if (isSpatialAudioAvailable)
+                    "Нативное пространственное аудио Media3 активно. Звуковые потоки направляются с сохранением многоканальной панорамы."
+                else
+                    "Ваше устройство или подключенные наушники не заявляют поддержку системного Spatializer Android 13+. Включите Surround Virtualizer выше для программного расширения стереобазы.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Dolby Atmos / Surround",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+                )
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isDolbyAtmosSupported) Color(0xFF1DB954).copy(alpha = 0.2f)
+                            else MaterialTheme.colorScheme.surfaceContainerHigh
+                ) {
+                    Text(
+                        text = if (isDolbyAtmosSupported) "Поддерживается системой" else "Не обнаружен",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = if (isDolbyAtmosSupported) Color(0xFF1DB954) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+

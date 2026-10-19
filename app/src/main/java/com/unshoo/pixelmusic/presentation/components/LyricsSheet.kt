@@ -421,18 +421,26 @@ fun LyricsSheet(
     val useAnimatedLyricsFlow = remember(context) {
         context.dataStore.data.map { it[booleanPreferencesKey("use_animated_lyrics")] ?: true }
     }
-    val useAnimatedLyrics by useAnimatedLyricsFlow.collectAsStateWithLifecycle(initialValue = true)
+    val rawUseAnimatedLyrics by useAnimatedLyricsFlow.collectAsStateWithLifecycle(initialValue = true)
 
     val performanceModeEnabledFlow = remember(context) {
-        context.dataStore.data.map { it[booleanPreferencesKey("performance_mode_enabled")] ?: false }
+        context.dataStore.data.map {
+            (it[booleanPreferencesKey("performance_mode_enabled")] ?: false) ||
+            (it[booleanPreferencesKey("lyrics_performance_mode")] ?: false)
+        }
     }
     val performanceModeEnabled by performanceModeEnabledFlow.collectAsStateWithLifecycle(initialValue = false)
 
+    // Automatically enable Advanced Lyrics View if lyrics have word-sync or subphrases (Tier 1 & Tier 2)
+    val isAdvancedLyrics = effectiveLyrics?.isAdvancedLyrics == true
+    val useAnimatedLyrics = if (isAdvancedLyrics) true else (rawUseAnimatedLyrics && !performanceModeEnabled)
+
+    val isBlurSupported = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && !performanceModeEnabled
     val animatedLyricsBlurEnabledFlow = remember(context) {
         context.dataStore.data.map { it[booleanPreferencesKey("animated_lyrics_blur_enabled")] ?: true }
     }
     val animatedLyricsBlurEnabledRaw by animatedLyricsBlurEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
-    val animatedLyricsBlurEnabled = animatedLyricsBlurEnabledRaw && !performanceModeEnabled
+    val animatedLyricsBlurEnabled = animatedLyricsBlurEnabledRaw && isBlurSupported
 
     val animatedLyricsBlurStrengthFlow = remember(context) {
         context.dataStore.data.map { it[androidx.datastore.preferences.core.floatPreferencesKey("animated_lyrics_blur_strength")] ?: 2.5f }
@@ -954,6 +962,7 @@ fun LyricsSheet(
                                 lyricsAlignment = lyricsAlignment,
                                 showTranslation = showLyricsTranslation || (showRussianTranslation && localTranslatedLyrics != null),
                                 showRomanization = showLyricsRomanization,
+                                performanceMode = performanceModeEnabled,
                                 footer = {
                                     effectiveLyrics?.credits?.takeIf { it.isNotEmpty() }?.let { credits ->
                                         item {
@@ -1556,6 +1565,7 @@ fun SyncedLyricsList(
     lyricsAlignment: String = "left",
     showTranslation: Boolean = true,
     showRomanization: Boolean = true,
+    performanceMode: Boolean = false,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     footer: LazyListScope.() -> Unit = {}
@@ -1564,17 +1574,18 @@ fun SyncedLyricsList(
     val playbackPosition by playbackPositionFlow.collectAsStateWithLifecycle()
     var smoothPosition by remember { mutableLongStateOf(playbackPosition) }
 
-    LaunchedEffect(playbackPosition, positionOverrideMs) {
+    LaunchedEffect(playbackPosition, positionOverrideMs, performanceMode) {
         if (positionOverrideMs != null) {
             smoothPosition = positionOverrideMs
             return@LaunchedEffect
         }
         val startBase = playbackPosition
         val startTime = android.os.SystemClock.uptimeMillis()
+        val tickIntervalMs = if (performanceMode) 33L else 16L
         while (isActive) {
             val elapsed = android.os.SystemClock.uptimeMillis() - startTime
             smoothPosition = startBase + elapsed
-            withFrameMillis { }
+            delay(tickIntervalMs)
         }
     }
 
@@ -1724,6 +1735,7 @@ fun SyncedLyricsList(
                             lyricsAlignment = lyricsAlignment,
                             showTranslation = showTranslation,
                             showRomanization = showRomanization,
+                            performanceMode = performanceMode,
                             accentColor = accentColor,
                             style = textStyle,
                             modifier = parallaxModifier
@@ -1787,6 +1799,7 @@ fun LyricLineRow(
     lyricsAlignment: String = "left",
     showTranslation: Boolean = true,
     showRomanization: Boolean = true,
+    performanceMode: Boolean = false,
     accentColor: Color,
     style: TextStyle,
     modifier: Modifier = Modifier,
@@ -2043,11 +2056,24 @@ fun LyricLineRow(
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
+
+            if (!line.subPhrases.isNullOrEmpty()) {
+                SubPhrasesSection(
+                    subPhrases = line.subPhrases,
+                    position = position,
+                    style = effectiveStyle,
+                    accentColor = accentColor,
+                    alignment = horizontalAlignment,
+                    textAlign = textAlign
+                )
+            }
         }
     } else {
-        val highlightedWordIndex by remember(position, sanitizedWords, line.time, lineEndTime) {
+        val isLineActiveOrAdjacent = abs(distanceFromCurrent) <= 1
+        val highlightedWordIndex by remember(position, sanitizedWords, line.time, lineEndTime, isLineActiveOrAdjacent) {
             derivedStateOf {
-                resolveHighlightedWordIndex(
+                if (!isLineActiveOrAdjacent) null
+                else resolveHighlightedWordIndex(
                     words = requireNotNull(sanitizedWords),
                     positionMs = position,
                     lineStartTimeMs = line.time.toLong(),
@@ -2109,7 +2135,8 @@ fun LyricLineRow(
                                     position = position,
                                     wordStartTime = wordStart,
                                     wordEndTime = wordEnd,
-                                    isBackground = line.isBackground
+                                    isBackground = line.isBackground,
+                                    performanceMode = performanceMode
                                 )
                             }
                         }
@@ -2136,6 +2163,58 @@ fun LyricLineRow(
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
+
+            if (!line.subPhrases.isNullOrEmpty()) {
+                SubPhrasesSection(
+                    subPhrases = line.subPhrases,
+                    position = position,
+                    style = effectiveStyle,
+                    accentColor = accentColor,
+                    alignment = horizontalAlignment,
+                    textAlign = textAlign
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubPhrasesSection(
+    subPhrases: List<com.unshoo.pixelmusic.data.model.SubPhrase>,
+    position: Long,
+    style: TextStyle,
+    accentColor: Color,
+    alignment: Alignment.Horizontal,
+    textAlign: TextAlign
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        horizontalAlignment = alignment
+    ) {
+        for (subPhrase in subPhrases) {
+            val isActive = position in subPhrase.startTime.toLong()..subPhrase.endTime.toLong()
+            val alpha by animateFloatAsState(
+                targetValue = if (isActive) 1f else 0f,
+                animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+                label = "subPhraseAlpha"
+            )
+
+            if (alpha > 0.01f) {
+                Text(
+                    text = "(${subPhrase.text})",
+                    style = style.copy(
+                        fontSize = (style.fontSize.value * 0.85f).sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                    ),
+                    color = accentColor.copy(alpha = alpha * 0.88f),
+                    textAlign = textAlign,
+                    modifier = Modifier
+                        .graphicsLayer { this.alpha = alpha }
+                        .padding(vertical = 2.dp, horizontal = 4.dp)
+                )
+            }
         }
     }
 }
@@ -2153,6 +2232,7 @@ fun LyricWordSpan(
     wordStartTime: Long = 0L,
     wordEndTime: Long = 0L,
     isBackground: Boolean = false,
+    performanceMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val cleanText = remember(word.word) {
@@ -2192,8 +2272,8 @@ fun LyricWordSpan(
     )
 
     // Dynamic glowing flare shadow
-    val glowAlpha = if (useAnimatedLyrics && isHighlighted) 0.50f else 0f
-    val glowRadius = if (useAnimatedLyrics && isHighlighted) 12f else 0f
+    val glowAlpha = if (useAnimatedLyrics && isHighlighted && !performanceMode) 0.50f else 0f
+    val glowRadius = if (useAnimatedLyrics && isHighlighted && !performanceMode) 12f else 0f
 
     val textShadow = if (glowAlpha > 0f) {
         Shadow(
@@ -2255,15 +2335,23 @@ fun LyricWordSpan(
                                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                                 .drawWithContent {
                                     drawContent()
-                                    val center = (size.width + edgeWidthPx * 2) * rawProgress - edgeWidthPx
-                                    drawRect(
-                                        brush = Brush.horizontalGradient(
-                                            colors = listOf(Color.Black, Color.Transparent),
-                                            startX = center - edgeWidthPx,
-                                            endX = center + edgeWidthPx,
-                                        ),
-                                        blendMode = BlendMode.DstIn,
-                                    )
+                                    if (performanceMode) {
+                                        drawRect(
+                                            color = Color.Black,
+                                            size = androidx.compose.ui.geometry.Size((size.width * rawProgress).coerceAtLeast(0f), size.height),
+                                            blendMode = BlendMode.DstIn,
+                                        )
+                                    } else {
+                                        val center = (size.width + edgeWidthPx * 2) * rawProgress - edgeWidthPx
+                                        drawRect(
+                                            brush = Brush.horizontalGradient(
+                                                colors = listOf(Color.Black, Color.Transparent),
+                                                startX = center - edgeWidthPx,
+                                                endX = center + edgeWidthPx,
+                                            ),
+                                            blendMode = BlendMode.DstIn,
+                                        )
+                                    }
                                 }
                         } else Modifier
                     )

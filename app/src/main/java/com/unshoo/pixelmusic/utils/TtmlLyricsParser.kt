@@ -35,6 +35,55 @@ internal object TtmlLyricsParser {
     )
 
     fun parseToEnhancedLrc(ttmlText: String): String? {
+        val parsedLines = parseDocument(ttmlText) ?: return null
+        return toLrcString(parsedLines)
+    }
+
+    fun parseTtmlToLyrics(ttmlText: String): com.unshoo.pixelmusic.data.model.Lyrics? {
+        val parsedLines = parseDocument(ttmlText) ?: return null
+        val syncedLines = parsedLines.map { pl ->
+            val words = pl.words.map { w ->
+                com.unshoo.pixelmusic.data.model.SyncedWord(
+                    time = w.startTimeMs,
+                    word = w.text,
+                    startsNewWord = true,
+                    endTime = w.endTimeMs
+                )
+            }.ifEmpty { null }
+
+            val subPhrases = pl.backgroundLines.map { bgLine ->
+                val subWords = bgLine.words.map { w ->
+                    com.unshoo.pixelmusic.data.model.SyncedWord(
+                        time = w.startTimeMs,
+                        word = w.text,
+                        startsNewWord = true,
+                        endTime = w.endTimeMs
+                    )
+                }.ifEmpty { null }
+                val bgEndTime = bgLine.words.lastOrNull()?.endTimeMs ?: (bgLine.startTimeMs + 3000)
+                com.unshoo.pixelmusic.data.model.SubPhrase(
+                    startTime = bgLine.startTimeMs,
+                    endTime = bgEndTime,
+                    text = bgLine.text,
+                    words = subWords
+                )
+            }.ifEmpty { null }
+
+            val lineEndTime = pl.words.lastOrNull()?.endTimeMs ?: (pl.startTimeMs + 3000)
+            com.unshoo.pixelmusic.data.model.SyncedLine(
+                time = pl.startTimeMs,
+                line = pl.text,
+                words = words,
+                agent = pl.agent,
+                isBackground = pl.isBackground,
+                endTime = lineEndTime,
+                subPhrases = subPhrases
+            )
+        }
+        return com.unshoo.pixelmusic.data.model.Lyrics(synced = syncedLines)
+    }
+
+    fun parseDocument(ttmlText: String): List<ParsedLine>? {
         return runCatching {
             val normalizedTtml = normalizeTtmlDocument(ttmlText)
             if (normalizedTtml.isBlank()) {
@@ -140,7 +189,7 @@ internal object TtmlLyricsParser {
 
             if (parsedLines.isEmpty()) return null
 
-            toLrcString(parsedLines)
+            parsedLines
         }.getOrNull()
     }
 

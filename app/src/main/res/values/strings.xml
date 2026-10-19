@@ -345,4 +345,6 @@
     <string name="import_connect_service_desc">Sign in to your %1$s account to transfer your library playlists and liked songs to PixelMusic.</string>
     <string name="import_connected_as">Connected as: %1$s</string>
     <string name="import_tracks_count">%1$d tracks</string>
+    <string name="lyrics_performance_mode_title">High Performance Mode</string>
+    <string name="lyrics_performance_mode_subtitle">Disables background blur, caps lyrics sync at 30 FPS, and optimizes rendering for low-end devices</string>
 </resources>

@@ -319,6 +319,7 @@ constructor(
         val USE_ANIMATED_LYRICS = booleanPreferencesKey("use_animated_lyrics")
         val ANIMATED_LYRICS_BLUR_ENABLED = booleanPreferencesKey("animated_lyrics_blur_enabled")
         val ANIMATED_LYRICS_BLUR_STRENGTH = androidx.datastore.preferences.core.floatPreferencesKey("animated_lyrics_blur_strength")
+        val LYRICS_PERFORMANCE_MODE = booleanPreferencesKey("lyrics_performance_mode")
         val FLOATING_HEADER_BAR_ENABLED = booleanPreferencesKey("floating_header_bar_enabled")
 
         // Genre View Preference
@@ -934,6 +935,17 @@ constructor(
     suspend fun setImmersiveLyricsTimeout(timeout: Long) {
         dataStore.edit { preferences ->
             preferences[PreferencesKeys.IMMERSIVE_LYRICS_TIMEOUT] = timeout
+        }
+    }
+
+    val lyricsPerformanceModeFlow: Flow<Boolean> =
+        dataStore.data.map { preferences ->
+            preferences[PreferencesKeys.LYRICS_PERFORMANCE_MODE] ?: false
+        }.distinctUntilChanged()
+
+    suspend fun setLyricsPerformanceMode(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.LYRICS_PERFORMANCE_MODE] = enabled
         }
     }
 

@@ -91,6 +91,13 @@
                 <action android:name="com.unshoo.pixelmusic.action.STOP" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <!-- Spotify OAuth 2.0 PKCE Callback -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="pixelmusic" android:host="spotify-callback" />
+            </intent-filter>
             <!-- Open YouTube / YouTube Music links in PixelMusic -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
