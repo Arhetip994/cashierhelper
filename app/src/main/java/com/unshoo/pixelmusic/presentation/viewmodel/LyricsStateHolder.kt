@@ -138,9 +138,7 @@ class LyricsStateHolder @Inject constructor(
                 null
             }
 
-            if (fetchedLyrics != null) {
-                loadCallback?.onLyricsLoaded(targetSongId, fetchedLyrics)
-            }
+            loadCallback?.onLyricsLoaded(targetSongId, fetchedLyrics)
         }
     }
 

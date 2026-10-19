@@ -8565,12 +8565,12 @@ class PlayerViewModel @Inject constructor(
 
         // Then, update the stable state
         playbackStateHolder.updateStablePlayerState { state ->
-            // Only update lyrics if they are explicitly passed
-            val finalLyrics = newLyrics ?: state.lyrics
+            val isSameSong = state.currentSong?.id == updatedSong.id
+            val finalLyrics = if (isSameSong) (newLyrics ?: state.lyrics) else newLyrics
             state.copy(
                 currentSong = updatedSong,
-                lyrics = if (state.currentSong?.id == updatedSong.id) finalLyrics else state.lyrics,
-                isLoadingLyrics = isLoadingLyrics ?: state.isLoadingLyrics
+                lyrics = finalLyrics,
+                isLoadingLyrics = if (isSameSong) (isLoadingLyrics ?: state.isLoadingLyrics) else (isLoadingLyrics ?: true)
             )
         }
     }
@@ -8815,7 +8815,7 @@ internal fun Song.withRepositoryHydration(repositorySong: Song): Song {
         contentUriString = repositorySong.contentUriString.ifBlank { contentUriString },
         albumArtUriString = hydratedArtworkUri,
         duration = repositorySong.duration.takeIf { it > 0L } ?: duration,
-        lyrics = repositorySong.lyrics ?: lyrics
+        lyrics = repositorySong.lyrics ?: (if (id == repositorySong.id) lyrics else null)
     )
 }
 
