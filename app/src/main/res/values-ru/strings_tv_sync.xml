@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tv_sync_title">PixelMusic TV</string>
+    <string name="tv_sync_subtitle">Трансляция и управление на Android TV</string>
+    <string name="tv_sync_status_connected">Подключено (#%s)</string>
+    <string name="tv_sync_status_disconnected">Не подключено</string>
+    <string name="tv_sync_error_not_connected">Сначала подключитесь к ТВ</string>
+    <string name="tv_sync_error_invalid_code">Не удалось распознать код ТВ. Отсканируйте QR заново или введите 6 цифр.</string>
+
+    <!-- Scan Hero Section -->
+    <string name="tv_sync_scan_hero_title">Сканировать QR с экрана ТВ</string>
+    <string name="tv_sync_scan_hero_desc">Наведите камеру телефона на QR-код на экране телевизора для мгновенного подключения.</string>
+    <string name="tv_sync_btn_scan_qr">Сканировать QR-код с экрана ТВ</string>
+    <string name="tv_sync_scan_auto_zoom_tip">Камера автоматически приблизит QR-код через комнату</string>
+    <string name="tv_sync_btn_rescan">Сменить ТВ / Сканировать QR</string>
+
+    <!-- Manual Pairing Section -->
+    <string name="tv_sync_or_manual_header">Или введите 6-значный код вручную</string>
+    <string name="tv_sync_pair_header">Подключение к телевизору</string>
+    <string name="tv_sync_pair_desc">Откройте «Передача по QR» на ТВ и отсканируйте QR-код или введите код сопряжения.</string>
+    <string name="tv_sync_code_hint">6-значный код сопряжения</string>
+    <string name="tv_sync_btn_pair">Подключить к ТВ</string>
+    <string name="tv_sync_btn_disconnect">Отключить</string>
+    <string name="tv_sync_btn_paste">Вставить из буфера</string>
+
+    <!-- Navigation & Tabs -->
+    <string name="tv_sync_tab_controls">Управление ТВ</string>
+    <string name="tv_sync_tab_pair">Подключение</string>
+    <string name="tv_sync_tab_qr">Поделиться</string>
+
+    <!-- Controls & Sending -->
+    <string name="tv_sync_now_playing_on_phone">Играет на телефоне</string>
+    <string name="tv_sync_action_play_now">Воспроизвести на ТВ</string>
+    <string name="tv_sync_action_add_queue">В очередь ТВ</string>
+    <string name="tv_sync_action_send_song">Передать на ТВ</string>
+    <string name="tv_sync_custom_url_header">Отправить произвольную ссылку или поиск</string>
+    <string name="tv_sync_custom_url_placeholder">Ссылка на YouTube Music / Spotify / веб-поток</string>
+    <string name="tv_sync_btn_send">Отправить на ТВ</string>
+    <string name="tv_sync_accounts_header">Мгновенный вход в аккаунты</string>
+    <string name="tv_sync_accounts_desc">Передайте данные серверов Navidrome, Jellyfin и ListenBrainz на ТВ одним нажатием без ввода паролей с пульта.</string>
+    <string name="tv_sync_btn_sync_accounts">Синхронизировать аккаунты с ТВ</string>
+
+    <!-- Toasts & Notifications -->
+    <string name="tv_sync_toast_sent_track">Трек «%1$s» отправлен на ТВ!</string>
+    <string name="tv_sync_toast_sent_playlist">Плейлист «%1$s» отправлен на ТВ!</string>
+    <string name="tv_sync_toast_accounts_synced">Аккаунты успешно синхронизированы с ТВ!</string>
+    <string name="tv_sync_toast_no_accounts">Нет подключенных аккаунтов для отправки.</string>
+    <string name="tv_sync_toast_failed">Ошибка отправки: %1$s</string>
+    <string name="tv_sync_toast_paired">Успешно подключено к ТВ (#%1$s)!</string>
+    <string name="tv_sync_toast_unpaired">Отключено от ТВ</string>
+
+    <!-- Phone Share QR -->
+    <string name="tv_sync_qr_title">Поделиться по QR-коду</string>
+    <string name="tv_sync_qr_desc">Показать QR-код этого трека, чтобы другие устройства могли отсканировать его с экрана телефона</string>
+    <string name="tv_sync_instruction_1">1. Откройте PixelMusic на Android TV</string>
+    <string name="tv_sync_instruction_2">2. Нажмите «Передать с телефона [QR]» на экране ТВ</string>
+    <string name="tv_sync_instruction_3">3. Наведите камеру телефона на QR-код на экране</string>
+    <string name="tv_sync_connected_banner">Подключено к %1$s</string>
+
+    <!-- Online Search Strings -->
+    <string name="search_section_youtube_music">YouTube Music — Онлайн (%1$d)</string>
+    <string name="search_searching_online">Поиск в YouTube Music…</string>
+    <string name="search_badge_online">Онлайн</string>
+</resources>

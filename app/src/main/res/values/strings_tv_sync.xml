@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tv_sync_title">PixelMusic TV</string>
+    <string name="tv_sync_subtitle">Cast and control playback on Android TV</string>
+    <string name="tv_sync_status_connected">Connected (#%s)</string>
+    <string name="tv_sync_status_disconnected">Not Connected</string>
+    <string name="tv_sync_error_not_connected">Please connect to TV first</string>
+    <string name="tv_sync_error_invalid_code">Could not recognize TV code. Please rescan QR or enter 6 digits.</string>
+
+    <!-- Scan Hero Section -->
+    <string name="tv_sync_scan_hero_title">Scan QR from TV Screen</string>
+    <string name="tv_sync_scan_hero_desc">Point your phone camera at the QR code on your TV screen for instant pairing.</string>
+    <string name="tv_sync_btn_scan_qr">Scan QR Code from TV</string>
+    <string name="tv_sync_scan_auto_zoom_tip">Camera automatically zooms in on distant TV screens</string>
+    <string name="tv_sync_btn_rescan">Change TV / Rescan QR</string>
+
+    <!-- Manual Pairing Section -->
+    <string name="tv_sync_or_manual_header">Or enter 6-digit code manually</string>
+    <string name="tv_sync_pair_header">Connect to TV</string>
+    <string name="tv_sync_pair_desc">Open \"QR Transfer\" on your TV and scan the QR code or enter the pairing code.</string>
+    <string name="tv_sync_code_hint">6-digit pairing code</string>
+    <string name="tv_sync_btn_pair">Connect to TV</string>
+    <string name="tv_sync_btn_disconnect">Disconnect</string>
+    <string name="tv_sync_btn_paste">Paste from clipboard</string>
+
+    <!-- Navigation & Tabs -->
+    <string name="tv_sync_tab_controls">TV Controls</string>
+    <string name="tv_sync_tab_pair">Pairing</string>
+    <string name="tv_sync_tab_qr">Share</string>
+
+    <!-- Controls & Sending -->
+    <string name="tv_sync_now_playing_on_phone">Now Playing on Phone</string>
+    <string name="tv_sync_action_play_now">Play on TV</string>
+    <string name="tv_sync_action_add_queue">Add to TV Queue</string>
+    <string name="tv_sync_action_send_song">Send to TV</string>
+    <string name="tv_sync_custom_url_header">Send custom link or search</string>
+    <string name="tv_sync_custom_url_placeholder">YouTube Music / Spotify / Web stream URL</string>
+    <string name="tv_sync_btn_send">Send to TV</string>
+    <string name="tv_sync_accounts_header">Instant Account Sync</string>
+    <string name="tv_sync_accounts_desc">Beam your Navidrome, Jellyfin, and ListenBrainz accounts to TV so you don\'t have to enter passwords with remote control.</string>
+    <string name="tv_sync_btn_sync_accounts">Sync Accounts to TV</string>
+
+    <!-- Toasts & Notifications -->
+    <string name="tv_sync_toast_sent_track">Sent \"%1$s\" to TV!</string>
+    <string name="tv_sync_toast_sent_playlist">Sent playlist \"%1$s\" to TV!</string>
+    <string name="tv_sync_toast_accounts_synced">Accounts successfully synced to TV!</string>
+    <string name="tv_sync_toast_no_accounts">No connected server accounts found to sync.</string>
+    <string name="tv_sync_toast_failed">Failed to send: %1$s</string>
+    <string name="tv_sync_toast_paired">Connected to TV (#%1$s)!</string>
+    <string name="tv_sync_toast_unpaired">Disconnected from TV</string>
+
+    <!-- Phone Share QR -->
+    <string name="tv_sync_qr_title">Share via QR Code</string>
+    <string name="tv_sync_qr_desc">Display QR code for this track so other devices can scan it from your phone</string>
+    <string name="tv_sync_instruction_1">1. Open PixelMusic on Android TV</string>
+    <string name="tv_sync_instruction_2">2. Click \"Send from phone [QR]\" on TV home screen</string>
+    <string name="tv_sync_instruction_3">3. Point phone camera at the QR code on TV screen</string>
+    <string name="tv_sync_connected_banner">Connected to %1$s</string>
+
+    <!-- Online Search Strings -->
+    <string name="search_section_youtube_music">YouTube Music — Online (%1$d)</string>
+    <string name="search_searching_online">Searching YouTube Music…</string>
+    <string name="search_badge_online">Online</string>
+</resources>
